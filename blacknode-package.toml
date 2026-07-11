@@ -1,0 +1,12 @@
+[package]
+name = "blacknode-robot"
+version = "0.1.0"
+description = "Generic robot discovery, USB permission checks, driver launch, and robot profile contracts."
+requires-blacknode = ">=0.1.0"
+
+[categories]
+"Robot" = "#14b8a6"
+
+[dependencies]
+pip = ["feetech-servo-sdk>=1.0"]
+imports = ["scservo_sdk"]
