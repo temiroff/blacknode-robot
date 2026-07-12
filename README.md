@@ -1,6 +1,12 @@
 # blacknode-robot
 
-Generic robot setup nodes for Blacknode.
+**Generic robot setup nodes for [Blacknode](https://github.com/temiroff/Blacknode).**
+
+This is a Blacknode **extension package** — it does not run on its own. It
+plugs robot hardware setup into the Blacknode visual workflow editor: find USB
+serial robot devices, fix Linux serial permissions, launch and stop a driver
+process, and emit one standard robot profile for downstream control nodes —
+drivable from workflows or AI agents over MCP.
 
 This package owns the user-facing robot abstraction:
 
@@ -111,6 +117,13 @@ pip install -r packages/blacknode-robot/requirements.txt   # feetech-servo-sdk
   `--no-torque-off-on-exit` in the preset's `command_template` (or a custom
   `RobotDriverDescriptor`) only if holding position is actually the safer
   failure mode for your specific mounting.
+- **The editor's "Stop all" reaches the driver process too.** `robot.py`
+  exposes `runtime_status()`/`stop_runtime_services()` (registered in the
+  main Blacknode editor's `_RUNTIME_MODULES`), so pressing "Stop all" sends
+  `SIGTERM` to every driver this session launched — which is what actually
+  triggers the torque-off-on-exit shutdown above. Before this was wired in,
+  "Stop all" only stopped camera/tracking/reasoning stream helpers and left
+  the robot driver (and torque) running silently in the background.
 - **Joint limits are placeholders.** The `min_deg`/`max_deg` sweep baked into
   the `so_arm101` preset (`nodes/presets.py`) is a starting range, not a
   verified safe envelope for your specific arm. Confirm it physically —

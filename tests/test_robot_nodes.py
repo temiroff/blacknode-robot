@@ -105,6 +105,31 @@ def test_driver_launcher_start_check_stop():
         assert stopped["running"] is False
 
 
+def test_stop_runtime_services_stops_managed_drivers():
+    descriptor = _NODE_REGISTRY["RobotDriverDescriptor"]({
+        "command_template": f"{sys.executable} -c \"import time; time.sleep(30)\"",
+    })["driver"]
+    try:
+        started = _NODE_REGISTRY["RobotDriverLauncher"]({
+            "action": "start",
+            "run_id": "test_stop_all_driver",
+            "driver": descriptor,
+        })
+        assert started["running"] is True
+        assert robot_nodes.runtime_status()["active"] is True
+
+        result = robot_nodes.stop_runtime_services()
+        assert result["ok"] is True
+        assert result["stopped"]["managed_runs"] >= 1
+        assert robot_nodes.runtime_status()["active"] is False
+    finally:
+        _NODE_REGISTRY["RobotDriverLauncher"]({
+            "action": "stop",
+            "run_id": "test_stop_all_driver",
+            "driver": descriptor,
+        })
+
+
 def test_robot_discovery_is_generic_and_driver_first(monkeypatch):
     monkeypatch.setattr(robot_nodes, "robot_usb_discovery", lambda ctx: {
         "found": True,

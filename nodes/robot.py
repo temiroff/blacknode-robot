@@ -278,6 +278,43 @@ def _stop_driver(run_id: str) -> int:
     return 1 if _terminate_process(proc) else 0
 
 
+def runtime_status() -> dict[str, Any]:
+    """Return Blacknode-started robot driver processes still known to this process."""
+    live_runs: list[dict[str, Any]] = []
+    for run_id, proc in list(_managed_drivers.items()):
+        if proc.poll() is None:
+            live_runs.append({"run_id": run_id, "pid": proc.pid})
+        else:
+            _managed_drivers.pop(run_id, None)
+    return {
+        "ok": True,
+        "managed_runs": live_runs,
+        "detached_count": 0,
+        "active": bool(live_runs),
+    }
+
+
+def stop_runtime_services() -> dict[str, Any]:
+    """Stop every robot driver process this Blacknode process started.
+
+    Terminating with SIGTERM (via _terminate_process) is what lets each
+    driver's own shutdown handler run -- for feetech_bus_driver.py that
+    means disabling torque on every servo before it exits, so this is the
+    call that must be wired into the editor's "Stop all" action, not just
+    a housekeeping cleanup.
+    """
+    status_before = runtime_status()
+    stopped = 0
+    for run_id in list(_managed_drivers):
+        stopped += _stop_driver(run_id)
+    return {
+        "ok": True,
+        "active_before": status_before,
+        "stopped": {"managed_runs": stopped},
+        "report": f"stopped {stopped} robot driver process(es)",
+    }
+
+
 @node(
     name="RobotUSBDiscovery",
     category=_CATEGORY,
