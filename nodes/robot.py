@@ -31,6 +31,13 @@ try:
 except ImportError:  # Windows does not provide Unix password database APIs.
     pwd = None
 
+try:
+    import serial
+    from serial.tools import list_ports as serial_list_ports
+except ImportError:  # pyserial is optional until robot setup is installed.
+    serial = None
+    serial_list_ports = None
+
 _CATEGORY = "Robot"
 _SERIAL_GLOBS = ("/dev/serial/by-id/*", "/dev/ttyACM*", "/dev/ttyUSB*")
 _COMMON_SERIAL_GROUPS = {"dialout", "uucp", "plugdev", "tty"}
@@ -77,16 +84,51 @@ def _serial_candidate_paths() -> list[str]:
     paths: list[str] = []
     for pattern in _SERIAL_GLOBS:
         paths.extend(sorted(glob.glob(pattern)))
+    paths.extend(_pyserial_candidate_paths())
 
     result: list[str] = []
     seen_realpaths: set[str] = set()
     for path in paths:
         real = os.path.realpath(path)
-        if not os.path.exists(real) or real in seen_realpaths:
+        key = real.lower() if os.name == "nt" else real
+        if not _serial_path_exists(path, real) or key in seen_realpaths:
             continue
-        seen_realpaths.add(real)
+        seen_realpaths.add(key)
         result.append(path)
     return result
+
+
+def _pyserial_candidate_paths() -> list[str]:
+    if serial_list_ports is None:
+        return []
+    try:
+        return [str(port.device) for port in serial_list_ports.comports() if str(port.device or "").strip()]
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def _serial_path_exists(path: str, real: str) -> bool:
+    if os.path.exists(real):
+        return True
+    return path in _pyserial_port_info_by_device()
+
+
+def _pyserial_port_info_by_device() -> dict[str, Any]:
+    if serial_list_ports is None:
+        return {}
+    try:
+        return {str(port.device): port for port in serial_list_ports.comports() if str(port.device or "").strip()}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def _hex_id(value: Any) -> str:
+    if value is None:
+        return ""
+    try:
+        return f"{int(value):04x}"
+    except Exception:  # noqa: BLE001
+        return str(value)
 
 
 def _usb_attrs_for_serial(path: str) -> dict[str, str]:
@@ -110,6 +152,19 @@ def _usb_attrs_for_serial(path: str) -> dict[str, str]:
 def _serial_permission_fixes(device: dict[str, Any]) -> list[str]:
     if device.get("accessible"):
         return []
+
+    if device.get("source") == "pyserial":
+        path = str(device.get("path") or "the serial port")
+        if os.name == "nt":
+            return [
+                f"close any app already using {path}",
+                "check Device Manager > Ports (COM & LPT) and install the USB-serial driver if needed",
+                "unplug/replug the robot USB data cable, then cook this node again",
+            ]
+        return [
+            f"close any app already using {path}",
+            f"grant read/write access to {path}, then cook this node again",
+        ]
 
     path = str(device.get("path") or device.get("real_path") or "the device")
     group = str(device.get("group") or "")
@@ -139,7 +194,62 @@ def _serial_permission_fixes(device: dict[str, Any]) -> list[str]:
     return fixes
 
 
+def _pyserial_device_info(path: str, probe_open: bool = False) -> dict[str, Any] | None:
+    port = _pyserial_port_info_by_device().get(path)
+    if port is None:
+        return None
+
+    description = str(getattr(port, "description", "") or "")
+    manufacturer = str(getattr(port, "manufacturer", "") or "")
+    product = str(getattr(port, "product", "") or "") or description
+    info: dict[str, Any] = {
+        "path": path,
+        "real_path": path,
+        "name": path,
+        "by_id": "",
+        "vendor_id": _hex_id(getattr(port, "vid", None)),
+        "product_id": _hex_id(getattr(port, "pid", None)),
+        "manufacturer": manufacturer,
+        "product": product,
+        "serial": str(getattr(port, "serial_number", "") or ""),
+        "description": description,
+        "hwid": str(getattr(port, "hwid", "") or ""),
+        "exists": True,
+        "readable": True,
+        "writable": True,
+        "accessible": True,
+        "owner": "",
+        "group": "",
+        "mode": "serial",
+        "probe": "",
+        "fixes": [],
+        "source": "pyserial",
+    }
+
+    if probe_open:
+        if serial is None:
+            info["probe"] = "pyserial_not_installed"
+            info["accessible"] = False
+        else:
+            try:
+                handle = serial.Serial(path, baudrate=115200, timeout=0.1, write_timeout=0.1)
+            except Exception as exc:  # noqa: BLE001
+                info["probe"] = f"open_failed: {exc}"
+                info["accessible"] = False
+            else:
+                handle.close()
+                info["probe"] = "open_ok"
+                info["accessible"] = True
+
+    info["fixes"] = _serial_permission_fixes(info)
+    return info
+
+
 def _serial_device_info(path: str, probe_open: bool = False) -> dict[str, Any]:
+    pyserial_info = _pyserial_device_info(path, probe_open=probe_open)
+    if pyserial_info is not None and (os.name == "nt" or not os.path.exists(os.path.realpath(path))):
+        return pyserial_info
+
     real = os.path.realpath(path)
     attrs = _usb_attrs_for_serial(path)
     info: dict[str, Any] = {
@@ -161,6 +271,7 @@ def _serial_device_info(path: str, probe_open: bool = False) -> dict[str, Any]:
         "mode": "",
         "probe": "",
         "fixes": [],
+        "source": "devfs",
     }
     if not info["exists"]:
         info["fixes"] = [f"device disappeared: {path}"]
@@ -230,6 +341,13 @@ def _format_serial_device(device: dict[str, Any]) -> str:
     label = " ".join(part for part in label_parts if part) or str(device.get("name") or path)
     access = "access OK" if device.get("accessible") else "access blocked"
     suffix = f" -> {real}" if real and real != path else ""
+    if device.get("source") == "pyserial":
+        bits = [access]
+        if device.get("vendor_id") and device.get("product_id"):
+            bits.append(f"vid:pid={device['vendor_id']}:{device['product_id']}")
+        if device.get("serial"):
+            bits.append(f"serial={device['serial']}")
+        return f"{path}{suffix}: {label} ({', '.join(bits)})"
     return f"{path}{suffix}: {label} ({access}, group={device.get('group') or '?'}, mode={device.get('mode') or '?'})"
 
 
@@ -255,6 +373,29 @@ def _driver_command(driver: dict[str, Any], serial_port: str) -> str:
         "config_topic": str(driver.get("config_topic") or ""),
     })
     return template.format_map(values)
+
+
+def _split_command(command: str) -> list[str]:
+    if os.name != "nt":
+        return shlex.split(command)
+
+    import ctypes  # local import keeps Unix path lightweight
+
+    argc = ctypes.c_int()
+    shell32 = ctypes.windll.shell32
+    kernel32 = ctypes.windll.kernel32
+    shell32.CommandLineToArgvW.argtypes = [ctypes.c_wchar_p, ctypes.POINTER(ctypes.c_int)]
+    shell32.CommandLineToArgvW.restype = ctypes.POINTER(ctypes.c_wchar_p)
+    kernel32.LocalFree.argtypes = [ctypes.c_void_p]
+    kernel32.LocalFree.restype = ctypes.c_void_p
+
+    argv = shell32.CommandLineToArgvW(command, ctypes.byref(argc))
+    if not argv:
+        raise ValueError(f"could not parse command: {command}")
+    try:
+        return [argv[i] for i in range(argc.value)]
+    finally:
+        kernel32.LocalFree(ctypes.cast(argv, ctypes.c_void_p))
 
 
 def _driver_running(run_id: str) -> bool:
@@ -373,7 +514,7 @@ def robot_usb_discovery(ctx: dict) -> dict:
         if text_filter:
             lines.append(f"no USB serial ports matched filter: {text_filter}")
         else:
-            lines.append("no USB serial ports detected (/dev/serial/by-id/*, /dev/ttyACM*, /dev/ttyUSB*)")
+            lines.append("no USB serial ports detected (COM* on Windows; /dev/serial/by-id/*, /dev/ttyACM*, /dev/ttyUSB* on Linux)")
         lines.append("plug in the robot with a USB data cable, power it on, then cook this node again")
     else:
         lines.append(f"found {len(devices)} USB serial candidate(s)")
@@ -508,7 +649,7 @@ def robot_driver_launcher(ctx: dict) -> dict:
 
     _stop_driver(run_id)
     try:
-        args = shlex.split(command)
+        args = _split_command(command)
         proc = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
     except Exception as exc:  # noqa: BLE001
         return {

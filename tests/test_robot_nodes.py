@@ -1,4 +1,5 @@
 import sys
+from types import SimpleNamespace
 
 import blacknode  # noqa: F401
 from blacknode.node import _NODE_REGISTRY
@@ -60,6 +61,30 @@ def test_usb_discovery_reports_permission_fix(monkeypatch):
     assert result["recommended"]["path"] == "/dev/serial/by-id/usb-Test_Robot"
     assert "access blocked" in result["report"]
     assert "sudo usermod -aG dialout alex" in result["report"]
+
+
+def test_usb_discovery_uses_pyserial_com_ports(monkeypatch):
+    fake_port = SimpleNamespace(
+        device="COM7",
+        description="USB Serial Device",
+        manufacturer="Feetech",
+        product="SO-ARM101 Servo Bus",
+        serial_number="abc123",
+        vid=0x1A86,
+        pid=0x7523,
+        hwid="USB VID:PID=1A86:7523 SER=abc123",
+    )
+    monkeypatch.setattr(robot_nodes, "serial_list_ports", SimpleNamespace(comports=lambda: [fake_port]))
+
+    result = _NODE_REGISTRY["RobotUSBDiscovery"]({})
+
+    assert result["found"] is True
+    assert result["ready"] is True
+    assert result["recommended"]["path"] == "COM7"
+    assert result["recommended"]["vendor_id"] == "1a86"
+    assert result["recommended"]["product_id"] == "7523"
+    assert "COM7" in result["report"]
+    assert "SO-ARM101 Servo Bus" in result["report"]
 
 
 def test_driver_descriptor_builds_generic_contract():
