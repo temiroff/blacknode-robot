@@ -10,7 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from blacknode.node import Dict, Enum, Float, Text, node
+from blacknode.node import Dict, Enum, Float, Int, Text, node
 
 _CATEGORY = "Robot"
 _DRIVERS_DIR = Path(__file__).resolve().parents[1] / "drivers"
@@ -62,6 +62,9 @@ def _joint_table(joints: dict[str, tuple[int, float, float]]) -> str:
         "command_topic": Text(default="/joint_commands"),
         "config_topic": Text(default="/joint_config"),
         "rate_hz": Float(default=15.0),
+        "transport": Enum(["native", "rosbridge"], default="native"),
+        "host": Text(default="127.0.0.1"),
+        "port": Int(default=9090),
     },
     outputs={"driver": Dict, "report": Text},
 )
@@ -77,20 +80,23 @@ def robot_driver_preset(ctx: dict) -> dict:
     command_topic = str(ctx.get("command_topic") or "/joint_commands")
     config_topic = str(ctx.get("config_topic") or "/joint_config")
     rate_hz = float(ctx.get("rate_hz") or 15.0)
+    transport = str(ctx.get("transport") or "native")
+    host = str(ctx.get("host") or "127.0.0.1")
+    port = int(ctx.get("port") or 9090)
 
     command_template = (
         f'"{{python}}" "{script}" --port "{{serial_port}}" --baudrate {preset["baudrate"]} '
         f'--joints "{_joints_arg(preset["joints"])}" '
         f'--state-topic {{state_topic}} --command-topic {{command_topic}} --config-topic {{config_topic}} '
-        f'--rate-hz {rate_hz:g}'
+        f'--rate-hz {rate_hz:g} --transport {transport} --host "{host}" --rosbridge-port {port}'
     )
     driver = {
         "id": preset_id,
         "name": preset["name"],
         "command_template": command_template,
-        "transport": "native",
-        "host": "127.0.0.1",
-        "port": 9090,
+        "transport": transport,
+        "host": host,
+        "port": port,
         "state_topic": state_topic,
         "command_topic": command_topic,
         "config_topic": config_topic,

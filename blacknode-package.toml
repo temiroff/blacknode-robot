@@ -8,5 +8,5 @@ requires-blacknode = ">=0.1.0"
 "Robot" = "#14b8a6"
 
 [dependencies]
-pip = ["feetech-servo-sdk>=1.0"]
-imports = ["scservo_sdk"]
+pip = ["feetech-servo-sdk>=1.0", "roslibpy>=1.5"]
+imports = ["scservo_sdk", "roslibpy"]

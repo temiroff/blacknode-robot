@@ -53,6 +53,21 @@ def test_robot_driver_preset_unknown_id_does_not_raise():
     assert "unknown robot preset" in result["report"]
 
 
+def test_robot_driver_preset_rosbridge_transport():
+    driver = _NODE_REGISTRY["RobotDriverPreset"]({
+        "preset": "so_arm101",
+        "transport": "rosbridge",
+        "host": "127.0.0.1",
+        "port": 9090,
+    })["driver"]
+
+    assert driver["transport"] == "rosbridge"
+    assert driver["host"] == "127.0.0.1"
+    assert driver["port"] == 9090
+    assert "--transport rosbridge" in driver["command_template"]
+    assert '--host "127.0.0.1" --rosbridge-port 9090' in driver["command_template"]
+
+
 def test_driver_joint_map_parsing_and_degree_math():
     mod = _load_driver_module()
 
@@ -69,6 +84,17 @@ def test_driver_joint_map_parsing_and_degree_math():
 
     assert mod.clamp_degrees(999.0, joints["shoulder_pan"]) == 100.0
     assert mod.clamp_degrees(-999.0, joints["shoulder_pan"]) == -100.0
+
+
+def test_driver_rosbridge_payload_contains_discovered_joint_names():
+    mod = _load_driver_module()
+    joints = mod.parse_joint_map("shoulder_pan:1:-100:100,gripper:6:-10:90", {}, set())
+
+    payload = mod._joint_state_payload({"shoulder_pan": 2048, "gripper": 2048}, joints)
+
+    assert payload["name"] == ["shoulder_pan", "gripper"]
+    assert payload["position"] == [0.0, 0.0]
+    assert mod._config_payload(joints)["commands_allowed"] is True
 
 
 def test_driver_home_ticks_and_invert_overrides():

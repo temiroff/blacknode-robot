@@ -101,13 +101,18 @@ def _fail(message: str, code: int = 1) -> None:
     sys.exit(code)
 
 
-def _hardware_imports() -> dict[str, Any]:
+def _hardware_imports(transport: str = "native") -> dict[str, Any]:
     try:
+        import scservo_sdk as sdk
+        if transport == "sdk":
+            return {"sdk": sdk}
+        if transport == "rosbridge":
+            import roslibpy
+            return {"sdk": sdk, "roslibpy": roslibpy}
         import rclpy
         from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
         from sensor_msgs.msg import JointState
         from std_msgs.msg import String
-        import scservo_sdk as sdk
     except Exception as exc:  # noqa: BLE001 - surfaced as a structured subprocess failure
         _fail(f"missing dependency: {type(exc).__name__}: {exc}", code=2)
         raise  # unreachable, keeps type-checkers happy
@@ -120,6 +125,91 @@ def _hardware_imports() -> dict[str, Any]:
         "DurabilityPolicy": DurabilityPolicy,
         "sdk": sdk,
     }
+
+
+def _joint_state_payload(ticks_by_name: dict[str, int], joints: dict[str, JointSpec]) -> dict[str, Any]:
+    now = time.time()
+    return {
+        "header": {
+            "stamp": {"sec": int(now), "nanosec": int((now % 1) * 1_000_000_000)},
+            "frame_id": "",
+        },
+        "name": list(ticks_by_name),
+        "position": [math.radians(ticks_to_degrees(ticks, joints[name])) for name, ticks in ticks_by_name.items()],
+        "velocity": [],
+        "effort": [],
+    }
+
+
+def _config_payload(joints: dict[str, JointSpec]) -> dict[str, Any]:
+    return {
+        "commands_allowed": True,
+        "joints": {
+            name: {
+                "lower": math.radians(clamp_degrees(min(joint.min_deg, joint.max_deg), joint)),
+                "upper": math.radians(clamp_degrees(max(joint.min_deg, joint.max_deg), joint)),
+            }
+            for name, joint in joints.items()
+        },
+    }
+
+
+def _apply_command(
+    message: Any,
+    joints: dict[str, JointSpec],
+    sdk: Any,
+    packet: Any,
+    port: Any,
+) -> None:
+    names = message.get("name", []) if isinstance(message, dict) else getattr(message, "name", [])
+    positions = message.get("position", []) if isinstance(message, dict) else getattr(message, "position", [])
+    for name, position_rad in zip(names, positions):
+        joint = joints.get(str(name))
+        if joint is None:
+            continue
+        deg = clamp_degrees(math.degrees(float(position_rad)), joint)
+        _write_goal(sdk, packet, port, joint.servo_id, degrees_to_ticks(deg, joint), confirm=False)
+
+
+def _run_rosbridge(
+    args: argparse.Namespace,
+    imports: dict[str, Any],
+    joints: dict[str, JointSpec],
+    sdk: Any,
+    packet: Any,
+    port: Any,
+    current_ticks: dict[str, int],
+    stop_event: threading.Event,
+) -> None:
+    roslibpy = imports["roslibpy"]
+    ros = roslibpy.Ros(host=args.host, port=args.rosbridge_port)
+    ros.run(timeout=max(1.0, args.connect_timeout))
+    if not ros.is_connected:
+        _fail(f"could not connect to rosbridge at ws://{args.host}:{args.rosbridge_port}")
+    state_pub = roslibpy.Topic(ros, args.state_topic, "sensor_msgs/JointState")
+    config_pub = roslibpy.Topic(ros, args.config_topic, "std_msgs/String", latch=True)
+    command_sub = roslibpy.Topic(ros, args.command_topic, "sensor_msgs/JointState")
+    state_pub.advertise()
+    config_pub.advertise()
+    command_sub.subscribe(lambda message: _apply_command(message, joints, sdk, packet, port))
+    last_known_ticks = dict(current_ticks)
+    try:
+        config_pub.publish(roslibpy.Message({"data": json.dumps(_config_payload(joints))}))
+        state_pub.publish(roslibpy.Message(_joint_state_payload(last_known_ticks, joints)))
+        period = 1.0 / max(0.1, args.rate_hz)
+        while ros.is_connected and not stop_event.wait(period):
+            for name, joint in joints.items():
+                ticks = _read_position_or_none(sdk, packet, port, joint.servo_id)
+                if ticks is not None:
+                    last_known_ticks[name] = ticks
+            state_pub.publish(roslibpy.Message(_joint_state_payload(last_known_ticks, joints)))
+    finally:
+        try:
+            command_sub.unsubscribe()
+            state_pub.unadvertise()
+            config_pub.unadvertise()
+        finally:
+            ros.terminate()
 
 
 def _read_position(sdk: Any, packet: Any, port: Any, servo_id: int) -> int:
@@ -213,6 +303,10 @@ def main() -> int:
     parser.add_argument("--command-topic", default="/joint_commands")
     parser.add_argument("--config-topic", default="/joint_config")
     parser.add_argument("--rate-hz", type=float, default=15.0)
+    parser.add_argument("--transport", choices=("native", "rosbridge"), default="native")
+    parser.add_argument("--host", default="127.0.0.1", help="rosbridge host when --transport=rosbridge")
+    parser.add_argument("--rosbridge-port", type=int, default=9090)
+    parser.add_argument("--connect-timeout", type=float, default=10.0)
     parser.add_argument(
         "--torque-off-on-exit",
         action=argparse.BooleanOptionalAction,
@@ -229,18 +323,11 @@ def main() -> int:
     if not joints:
         _fail("no joints parsed from --joints")
 
-    imports = _hardware_imports()
+    imports = _hardware_imports("sdk" if args.dry_run else args.transport)
     sdk = imports["sdk"]
 
     if args.dry_run:
         return _dry_run(sdk, joints, args.port, args.baudrate)
-
-    rclpy = imports["rclpy"]
-    JointState = imports["JointState"]
-    String = imports["String"]
-    QoSProfile = imports["QoSProfile"]
-    ReliabilityPolicy = imports["ReliabilityPolicy"]
-    DurabilityPolicy = imports["DurabilityPolicy"]
 
     port = _open_port(sdk, args.port, args.baudrate)
     packet = sdk.PacketHandler(0)
@@ -261,6 +348,31 @@ def main() -> int:
     for name, joint in joints.items():
         if not _set_torque(sdk, packet, port, joint.servo_id, True):
             _fail(f"could not enable torque on {name} (servo id {joint.servo_id})")
+
+    stop_event = threading.Event()
+
+    def handle_stop(*_: Any) -> None:
+        stop_event.set()
+
+    signal.signal(signal.SIGTERM, handle_stop)
+    signal.signal(signal.SIGINT, handle_stop)
+
+    if args.transport == "rosbridge":
+        try:
+            _run_rosbridge(args, imports, joints, sdk, packet, port, current_ticks, stop_event)
+        finally:
+            if args.torque_off_on_exit:
+                for joint in joints.values():
+                    _set_torque(sdk, packet, port, joint.servo_id, False)
+            port.closePort()
+        return 0
+
+    rclpy = imports["rclpy"]
+    JointState = imports["JointState"]
+    String = imports["String"]
+    QoSProfile = imports["QoSProfile"]
+    ReliabilityPolicy = imports["ReliabilityPolicy"]
+    DurabilityPolicy = imports["DurabilityPolicy"]
 
     rclpy.init(args=None)
     node = rclpy.create_node("blacknode_feetech_bus_driver")
@@ -309,14 +421,6 @@ def main() -> int:
             _write_goal(sdk, packet, port, joint.servo_id, ticks, confirm=False)
 
     node.create_subscription(JointState, args.command_topic, on_command, 10)
-
-    stop_event = threading.Event()
-
-    def handle_stop(*_: Any) -> None:
-        stop_event.set()
-
-    signal.signal(signal.SIGTERM, handle_stop)
-    signal.signal(signal.SIGINT, handle_stop)
 
     period = 1.0 / max(0.1, args.rate_hz)
     last_known_ticks = dict(current_ticks)

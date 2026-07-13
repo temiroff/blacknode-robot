@@ -70,7 +70,7 @@ including a `command_template` that points at a bundled driver script in
 Supporting a new robot is additive: one more entry in the preset table
 (`nodes/presets.py`), and — only if it's a new wire protocol, not just a new
 arm — one more `<protocol>_bus_driver.py` script in `drivers/`. Everything
-else (USB discovery, launch/stop, the native ROS 2 `JointState` contract) is
+else (USB discovery, launch/stop, and the ROS 2 `JointState` contract) is
 already generic.
 
 ### SO-ARM101 (`preset: so_arm101`)
@@ -78,10 +78,13 @@ already generic.
 Drives a real [SO-ARM101](https://github.com/TheRobotStudio/SO-ARM100) —
 6x Feetech STS3215 serial-bus servos (`shoulder_pan`, `shoulder_lift`,
 `elbow_flex`, `wrist_flex`, `wrist_roll`, `gripper`; servo IDs 1-6; 1 Mbps)
-— through `drivers/feetech_bus_driver.py`, native `rclpy`, no rosbridge.
+— through `drivers/feetech_bus_driver.py`. The preset defaults to native
+`rclpy` for Linux; set `transport=rosbridge` for Windows. In rosbridge mode the
+same driver publishes state and receives commands through `roslibpy`, while the
+serial connection remains local to Windows.
 
 ```bash
-pip install -r packages/blacknode-robot/requirements.txt   # feetech-servo-sdk
+pip install -r packages/blacknode-robot/requirements.txt   # servo SDK + roslibpy
 ```
 
 1. Plug in the arm, then run `RobotUSBDiscovery` to confirm its USB-serial
