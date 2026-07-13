@@ -186,9 +186,9 @@ def _run_rosbridge(
     ros.run(timeout=max(1.0, args.connect_timeout))
     if not ros.is_connected:
         _fail(f"could not connect to rosbridge at ws://{args.host}:{args.rosbridge_port}")
-    state_pub = roslibpy.Topic(ros, args.state_topic, "sensor_msgs/JointState")
-    config_pub = roslibpy.Topic(ros, args.config_topic, "std_msgs/String", latch=True)
-    command_sub = roslibpy.Topic(ros, args.command_topic, "sensor_msgs/JointState")
+    state_pub = roslibpy.Topic(ros, args.state_topic, "sensor_msgs/msg/JointState")
+    config_pub = roslibpy.Topic(ros, args.config_topic, "std_msgs/msg/String", latch=True)
+    command_sub = roslibpy.Topic(ros, args.command_topic, "sensor_msgs/msg/JointState")
     state_pub.advertise()
     config_pub.advertise()
     command_sub.subscribe(lambda message: _apply_command(message, joints, sdk, packet, port))

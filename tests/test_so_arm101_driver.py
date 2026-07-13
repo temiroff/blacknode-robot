@@ -97,6 +97,14 @@ def test_driver_rosbridge_payload_contains_discovered_joint_names():
     assert mod._config_payload(joints)["commands_allowed"] is True
 
 
+def test_driver_uses_ros2_rosbridge_message_type_names():
+    source = _DRIVER_PATH.read_text(encoding="utf-8")
+
+    assert '"sensor_msgs/msg/JointState"' in source
+    assert '"std_msgs/msg/String"' in source
+    assert '"sensor_msgs/JointState"' not in source
+
+
 def test_driver_home_ticks_and_invert_overrides():
     mod = _load_driver_module()
 

@@ -650,7 +650,13 @@ def robot_driver_launcher(ctx: dict) -> dict:
     _stop_driver(run_id)
     try:
         args = _split_command(command)
-        proc = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        proc = subprocess.Popen(
+            args,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+            start_new_session=True,
+        )
     except Exception as exc:  # noqa: BLE001
         return {
             "running": False,
@@ -667,12 +673,14 @@ def robot_driver_launcher(ctx: dict) -> dict:
         while time.time() < deadline:
             if proc.poll() is not None:
                 _managed_drivers.pop(run_id, None)
+                stderr = (proc.stderr.read() if proc.stderr else "").strip()
+                detail = f": {stderr}" if stderr else ""
                 return {
                     "running": False,
                     "run_id": run_id,
                     "driver": driver,
                     "command": command,
-                    "report": f"robot driver exited during startup with code {proc.returncode}",
+                    "report": f"robot driver exited during startup with code {proc.returncode}{detail}",
                 }
             time.sleep(0.1)
 
