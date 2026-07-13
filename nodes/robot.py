@@ -8,9 +8,7 @@ topic adapters and motion nodes.
 from __future__ import annotations
 
 import glob
-import grp
 import os
-import pwd
 import shlex
 import signal
 import stat
@@ -23,6 +21,16 @@ from typing import Any
 from blacknode.node import Any as AnyPort
 from blacknode.node import Bool, Dict, Enum, Float, Int, List, Text, node
 
+try:
+    import grp
+except ImportError:  # Windows does not provide Unix group database APIs.
+    grp = None
+
+try:
+    import pwd
+except ImportError:  # Windows does not provide Unix password database APIs.
+    pwd = None
+
 _CATEGORY = "Robot"
 _SERIAL_GLOBS = ("/dev/serial/by-id/*", "/dev/ttyACM*", "/dev/ttyUSB*")
 _COMMON_SERIAL_GROUPS = {"dialout", "uucp", "plugdev", "tty"}
@@ -30,21 +38,29 @@ _managed_drivers: dict[str, subprocess.Popen] = {}
 
 
 def _current_username() -> str:
-    try:
-        return pwd.getpwuid(os.geteuid()).pw_name
-    except Exception:  # noqa: BLE001
-        return os.environ.get("USER", "")
+    if pwd is not None and hasattr(os, "geteuid"):
+        try:
+            return pwd.getpwuid(os.geteuid()).pw_name
+        except Exception:  # noqa: BLE001
+            pass
+    return os.environ.get("USER") or os.environ.get("USERNAME", "")
 
 
 def _group_name(gid: int) -> str:
-    try:
-        return grp.getgrgid(gid).gr_name
-    except Exception:  # noqa: BLE001
-        return str(gid)
+    if grp is not None:
+        try:
+            return grp.getgrgid(gid).gr_name
+        except Exception:  # noqa: BLE001
+            pass
+    return str(gid)
 
 
 def _user_group_names() -> list[str]:
-    gids = {os.getegid(), *os.getgroups()}
+    gids: set[int] = set()
+    if hasattr(os, "getegid"):
+        gids.add(os.getegid())
+    if hasattr(os, "getgroups"):
+        gids.update(os.getgroups())
     names = {_group_name(gid) for gid in gids}
     return sorted(name for name in names if name)
 
@@ -152,7 +168,7 @@ def _serial_device_info(path: str, probe_open: bool = False) -> dict[str, Any]:
 
     try:
         st = os.stat(real)
-        info["owner"] = pwd.getpwuid(st.st_uid).pw_name
+        info["owner"] = pwd.getpwuid(st.st_uid).pw_name if pwd is not None else str(st.st_uid)
         info["group"] = _group_name(st.st_gid)
         info["mode"] = oct(stat.S_IMODE(st.st_mode))
     except Exception:  # noqa: BLE001
