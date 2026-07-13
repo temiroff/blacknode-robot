@@ -647,6 +647,16 @@ def robot_driver_launcher(ctx: dict) -> dict:
             "report": "robot driver start BLOCKED: no serial port available from USB discovery",
         }
 
+    if _driver_running(run_id):
+        proc = _managed_drivers[run_id]
+        return {
+            "running": True,
+            "run_id": run_id,
+            "driver": driver,
+            "command": command,
+            "report": f"robot driver already running: {driver.get('name') or run_id} (pid {proc.pid})",
+        }
+
     _stop_driver(run_id)
     try:
         args = _split_command(command)

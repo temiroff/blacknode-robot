@@ -143,6 +143,17 @@ def test_driver_launcher_accepts_preset_command_template_shape():
             "serial_port": "/dev/ttyACM0",
         })
         assert started["running"] is True
+        first_pid = _NODE_REGISTRY["RobotDriverLauncher"].__globals__["_managed_drivers"]["test_so_arm101_driver"].pid
+        repeated = _NODE_REGISTRY["RobotDriverLauncher"]({
+            "action": "start",
+            "run_id": "test_so_arm101_driver",
+            "driver": driver,
+            "serial_port": "/dev/ttyACM0",
+        })
+        second_pid = _NODE_REGISTRY["RobotDriverLauncher"].__globals__["_managed_drivers"]["test_so_arm101_driver"].pid
+        assert repeated["running"] is True
+        assert "already running" in repeated["report"]
+        assert second_pid == first_pid
     finally:
         stopped = _NODE_REGISTRY["RobotDriverLauncher"]({
             "action": "stop",
