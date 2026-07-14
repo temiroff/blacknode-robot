@@ -1,3 +1,4 @@
+import io
 import sys
 from types import SimpleNamespace
 
@@ -128,6 +129,33 @@ def test_driver_launcher_start_check_stop():
             "driver": descriptor,
         })
         assert stopped["running"] is False
+
+
+def test_driver_launcher_preserves_late_exit_error():
+    run_id = "test_late_driver_exit"
+    proc = SimpleNamespace(
+        poll=lambda: 7,
+        returncode=7,
+        stderr=io.StringIO("serial transport failed after startup"),
+    )
+    robot_nodes._managed_drivers[run_id] = proc
+    robot_nodes._last_driver_exits.pop(run_id, None)
+    try:
+        result = _NODE_REGISTRY["RobotDriverLauncher"]({
+            "action": "check",
+            "run_id": run_id,
+            "driver": {},
+        })
+        assert result["running"] is False
+        assert "last exit code 7" in result["report"]
+        assert "serial transport failed after startup" in result["report"]
+        assert any(
+            item["run_id"] == run_id and item["returncode"] == 7
+            for item in robot_nodes.runtime_status()["recent_exits"]
+        )
+    finally:
+        robot_nodes._managed_drivers.pop(run_id, None)
+        robot_nodes._last_driver_exits.pop(run_id, None)
 
 
 def test_stop_runtime_services_stops_managed_drivers():

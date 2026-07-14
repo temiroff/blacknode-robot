@@ -42,6 +42,7 @@ _CATEGORY = "Robot"
 _SERIAL_GLOBS = ("/dev/serial/by-id/*", "/dev/ttyACM*", "/dev/ttyUSB*")
 _COMMON_SERIAL_GROUPS = {"dialout", "uucp", "plugdev", "tty"}
 _managed_drivers: dict[str, subprocess.Popen] = {}
+_last_driver_exits: dict[str, dict[str, Any]] = {}
 
 
 def _current_username() -> str:
@@ -405,7 +406,22 @@ def _driver_running(run_id: str) -> bool:
     if proc.poll() is None:
         return True
     _managed_drivers.pop(run_id, None)
+    stderr = (proc.stderr.read() if proc.stderr else "").strip()
+    _last_driver_exits[run_id] = {
+        "run_id": run_id,
+        "returncode": proc.returncode,
+        "error": stderr[-4000:],
+    }
     return False
+
+
+def _last_driver_exit_report(run_id: str) -> str:
+    item = _last_driver_exits.get(run_id)
+    if not item:
+        return ""
+    detail = str(item.get("error") or "").strip()
+    suffix = f": {detail}" if detail else ""
+    return f"; last exit code {item.get('returncode')}{suffix}"
 
 
 def _terminate_process(proc: subprocess.Popen) -> bool:
@@ -446,6 +462,7 @@ def runtime_status() -> dict[str, Any]:
     return {
         "ok": True,
         "managed_runs": live_runs,
+        "recent_exits": list(_last_driver_exits.values()),
         "detached_count": 0,
         "active": bool(live_runs),
     }
@@ -627,7 +644,7 @@ def robot_driver_launcher(ctx: dict) -> dict:
             "run_id": run_id,
             "driver": driver,
             "command": command,
-            "report": f"robot driver {'running' if running else 'not running'}: {run_id}",
+            "report": f"robot driver {'running' if running else 'not running'}: {run_id}{'' if running else _last_driver_exit_report(run_id)}",
         }
 
     if not command:
@@ -658,6 +675,7 @@ def robot_driver_launcher(ctx: dict) -> dict:
         }
 
     _stop_driver(run_id)
+    _last_driver_exits.pop(run_id, None)
     try:
         args = _split_command(command)
         proc = subprocess.Popen(
@@ -682,15 +700,13 @@ def robot_driver_launcher(ctx: dict) -> dict:
         deadline = time.time() + wait_seconds
         while time.time() < deadline:
             if proc.poll() is not None:
-                _managed_drivers.pop(run_id, None)
-                stderr = (proc.stderr.read() if proc.stderr else "").strip()
-                detail = f": {stderr}" if stderr else ""
+                _driver_running(run_id)
                 return {
                     "running": False,
                     "run_id": run_id,
                     "driver": driver,
                     "command": command,
-                    "report": f"robot driver exited during startup with code {proc.returncode}{detail}",
+                    "report": f"robot driver exited during startup{_last_driver_exit_report(run_id)}",
                 }
             time.sleep(0.1)
 
