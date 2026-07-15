@@ -1,5 +1,9 @@
 # blacknode-robot
 
+[![Blacknode robot vision demo](docs/assets/blacknode-robot-vision-demo-preview.jpg)](docs/assets/blacknode-robot-vision-demo.mp4)
+
+▶ **[Watch the Blacknode robot vision demo](docs/assets/blacknode-robot-vision-demo.mp4)** (37 seconds)
+
 **Generic robot setup nodes for [Blacknode](https://github.com/temiroff/Blacknode).**
 
 This is a Blacknode **extension package** — it does not run on its own. It
