@@ -19,6 +19,7 @@ _PRESET_IDS = ["so_arm101"]
 @node(
     name="RobotDriverPreset",
     category=_CATEGORY,
+    hidden=True,
     description="Fill in a driver descriptor for a known, tested robot. Drop-in ahead of RobotDriverLauncher/RobotDiscovery, same output shape as RobotDriverDescriptor.",
     inputs={
         "preset": Enum(_PRESET_IDS, default="so_arm101"),

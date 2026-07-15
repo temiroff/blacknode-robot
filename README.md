@@ -29,9 +29,9 @@ driver.
 |---|---|
 | `RobotUSBDiscovery` | Finds `/dev/serial/by-id/*`, `/dev/ttyACM*`, `/dev/ttyUSB*` and reports access fixes |
 | `RobotDriverDescriptor` | Declares a driver command template and standard topics |
-| `RobotDriverPreset` | Fills in a driver descriptor for a known, tested robot (currently: SO-ARM101) |
+| `Robot` | Selects a built-in or saved robot and applies the connected device's calibration |
 | `RobotJointDefinition` | Defines one named joint, servo ID, range, zero, and direction |
-| `RobotJointList` | Combines up to 16 joint definitions into one ordered list |
+| `RobotJointList` | Combines any number of joint definitions; another socket appears as the list fills |
 | `RobotDefinition` | Builds a reusable robot profile and driver contract visually |
 | `RobotProfileSave` | Saves a profile under `robots/<profile_id>/profile.json` |
 | `RobotProfileLoad` | Loads a profile and the calibration for a connected hardware ID |
@@ -69,14 +69,18 @@ The resulting robot profile carries:
 Robot-specific packages should fill in the descriptor. Transport packages should
 verify and use the interface.
 
-## Presets
+## Robot Selection and Drivers
 
-`RobotDriverPreset` is a curated shortcut ahead of `RobotDriverDescriptor`:
-pick a known, tested robot from its `preset` dropdown and it fills in a
-ready-to-launch `driver` dict (same shape `RobotDriverDescriptor` produces),
-including a `command_template` that points at a bundled driver script in
-`drivers/`. Wire its `driver` output straight into `RobotDiscovery` (or
-`RobotDriverLauncher`) — no manual command template required.
+Use the generic `Robot` node in new workflows. Its dropdown includes built-in
+and locally saved profiles, and its `driver` output connects directly to
+`RobotDiscovery` or `RobotDriverLauncher`. `RobotDriverPreset` and
+`RobotProfileLoad` remain hidden compatibility aliases for old workflows.
+
+`RobotDefinition.driver_script` is also a dropdown populated from installed
+`drivers/*_driver.py` files when Blacknode starts. Adding a driver file and
+restarting Blacknode makes it selectable without changing the node. A custom
+executable or non-Python launch path can still use `protocol=custom` with an
+explicit `command_template`.
 
 The curated SO-ARM101 preset uses the same profile schema as a visual custom
 robot. Supporting another arm on the bundled Feetech protocol normally means
@@ -96,6 +100,16 @@ For structural changes, copy the **Editable SO-ARM101 Profile** workflow and
 edit its visible joint nodes before saving. Profile and joint IDs normalize to lowercase
 `snake_case`, limited to 64 characters, and must be unique. Display names are
 free-form and can change without breaking workflows.
+
+Connect `RobotUSBDiscovery.recommended` to `RobotDefinition.hardware`. The
+definition automatically copies the real USB vendor ID and product ID reported
+by the adapter; these are four-digit hexadecimal identifiers assigned to the
+hardware manufacturer/product, not random robot IDs. The manual `vendor_id` and
+`product_id` fields are optional advanced overrides. Saved VID/PID values help
+`RobotDiscovery` reject unrelated serial adapters, while the adapter serial (or
+device path when no serial exists) selects the calibration for one physical
+assembly. Normally users should leave `hardware_id` blank and connect discovery
+to the `hardware` input.
 
 Local robot data is deliberately separate from the package source:
 

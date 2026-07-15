@@ -11,6 +11,13 @@
     "required_packages": ["blacknode-robot"]
   },
   "node_meta": {
+    "usb": {
+      "id": "usb", "type": "RobotUSBDiscovery", "pos": [790, 500],
+      "params": {"port_filter": "", "match_vendor_id": "", "match_product_id": "", "probe_open": false},
+      "inputs": ["refresh", "port_filter", "match_vendor_id", "match_product_id", "probe_open"], "outputs": ["found", "ready", "devices", "recommended", "permissions", "report"],
+      "input_types": {"refresh": "Any", "port_filter": "Text", "match_vendor_id": "Text", "match_product_id": "Text", "probe_open": "Bool"}, "output_types": {"found": "Bool", "ready": "Bool", "devices": "List", "recommended": "Dict", "permissions": "Dict", "report": "Text"},
+      "input_defaults": {"port_filter": "", "match_vendor_id": "", "match_product_id": "", "probe_open": false}
+    },
     "shoulder_pan": {
       "id": "shoulder_pan", "type": "RobotJointDefinition", "pos": [40, 40],
       "params": {"joint_id": "shoulder_pan", "display_name": "Shoulder pan", "servo_id": 1, "min_deg": -100.0, "max_deg": 100.0, "home_ticks": 2048, "invert": false, "velocity_limit": 0.0, "torque_limit": 0.0},
@@ -57,13 +64,14 @@
       "params": {
         "profile_id": "my_so_arm101", "display_name": "My SO-ARM101", "protocol": "feetech",
         "driver_script": "feetech_bus_driver.py", "command_template": "", "baudrate": 1000000,
-        "vendor_id": "1a86", "product_id": "55d3", "transport": "auto", "host": "127.0.0.1", "port": 9090,
+        "vendor_id": "", "product_id": "", "transport": "auto", "host": "127.0.0.1", "port": 9090,
         "state_topic": "/joint_states", "command_topic": "/joint_commands", "config_topic": "/joint_config",
         "control_topic": "/robot_control", "rate_hz": 15.0, "units": "degrees"
       },
-      "inputs": ["profile_id", "display_name", "protocol", "driver_script", "command_template", "baudrate", "joints", "vendor_id", "product_id", "transport", "host", "port", "state_topic", "command_topic", "config_topic", "control_topic", "rate_hz", "units"], "outputs": ["valid", "profile", "driver", "report"],
-      "input_types": {"profile_id": "Text", "display_name": "Text", "protocol": "Text", "driver_script": "Text", "command_template": "Text", "baudrate": "Int", "joints": "List", "vendor_id": "Text", "product_id": "Text", "transport": "Text", "host": "Text", "port": "Int", "state_topic": "Text", "command_topic": "Text", "config_topic": "Text", "control_topic": "Text", "rate_hz": "Float", "units": "Text"}, "output_types": {"valid": "Bool", "profile": "Dict", "driver": "Dict", "report": "Text"},
+      "inputs": ["profile_id", "display_name", "protocol", "driver_script", "command_template", "baudrate", "joints", "hardware", "vendor_id", "product_id", "transport", "host", "port", "state_topic", "command_topic", "config_topic", "control_topic", "rate_hz", "units"], "outputs": ["valid", "profile", "driver", "report"],
+      "input_types": {"profile_id": "Text", "display_name": "Text", "protocol": "Text", "driver_script": "Text", "command_template": "Text", "baudrate": "Int", "joints": "List", "hardware": "Dict", "vendor_id": "Text", "product_id": "Text", "transport": "Text", "host": "Text", "port": "Int", "state_topic": "Text", "command_topic": "Text", "config_topic": "Text", "control_topic": "Text", "rate_hz": "Float", "units": "Text"}, "output_types": {"valid": "Bool", "profile": "Dict", "driver": "Dict", "report": "Text"},
       "input_defaults": {"profile_id": "my_robot", "display_name": "My Robot", "protocol": "feetech", "driver_script": "feetech_bus_driver.py", "command_template": "", "baudrate": 1000000, "vendor_id": "", "product_id": "", "transport": "auto", "host": "127.0.0.1", "port": 9090, "state_topic": "/joint_states", "command_topic": "/joint_commands", "config_topic": "/joint_config", "control_topic": "/robot_control", "rate_hz": 15.0, "units": "degrees"}
+      ,"input_choices": {"protocol": ["feetech", "custom"], "driver_script": ["feetech_bus_driver.py"], "transport": ["auto", "native", "rosbridge"], "units": ["degrees", "radians"]}
     },
     "save": {
       "id": "save", "type": "RobotProfileSave", "pos": [1570, 190], "params": {"overwrite": false},
@@ -82,6 +90,7 @@
     {"from": "wrist_roll", "from_port": "joint", "to": "joints", "to_port": "joint_5"},
     {"from": "gripper", "from_port": "joint", "to": "joints", "to_port": "joint_6"},
     {"from": "joints", "from_port": "joints", "to": "definition", "to_port": "joints"},
+    {"from": "usb", "from_port": "recommended", "to": "definition", "to_port": "hardware"},
     {"from": "definition", "from_port": "profile", "to": "save", "to_port": "profile"},
     {"from": "save", "from_port": "report", "to": "out", "to_port": "value"}
   ]

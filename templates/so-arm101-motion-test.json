@@ -14,50 +14,24 @@
     "required_packages": ["blacknode-robot", "blacknode-ros2"]
   },
   "node_meta": {
+    "usb": {
+      "id": "usb", "type": "RobotUSBDiscovery", "pos": [40, 40],
+      "params": {"port_filter": "", "match_vendor_id": "", "match_product_id": "", "probe_open": false},
+      "inputs": ["refresh", "port_filter", "match_vendor_id", "match_product_id", "probe_open"], "outputs": ["found", "ready", "devices", "recommended", "permissions", "report"],
+      "input_types": {"refresh": "Any", "port_filter": "Text", "match_vendor_id": "Text", "match_product_id": "Text", "probe_open": "Bool"}, "output_types": {"found": "Bool", "ready": "Bool", "devices": "List", "recommended": "Dict", "permissions": "Dict", "report": "Text"},
+      "input_defaults": {"port_filter": "", "match_vendor_id": "", "match_product_id": "", "probe_open": false}
+    },
     "preset": {
       "id": "preset",
-      "type": "RobotDriverPreset",
-      "params": {
-        "preset": "so_arm101",
-        "state_topic": "/joint_states",
-        "command_topic": "/joint_commands",
-        "config_topic": "/joint_config",
-        "rate_hz": 15.0,
-        "transport": "auto",
-        "host": "127.0.0.1",
-        "port": 9090
-      },
+      "type": "Robot",
+      "params": {"profile_id": "so_arm101"},
       "pos": [40, 200],
-      "inputs": ["preset", "state_topic", "command_topic", "config_topic", "rate_hz", "transport", "host", "port"],
-      "outputs": ["driver", "report"],
-      "input_types": {
-        "preset": "Text",
-        "state_topic": "Text",
-        "command_topic": "Text",
-        "config_topic": "Text",
-        "rate_hz": "Float",
-        "transport": "Text",
-        "host": "Text",
-        "port": "Int"
-      },
-      "output_types": {
-        "driver": "Dict",
-        "report": "Text"
-      },
-      "input_defaults": {
-        "preset": "so_arm101",
-        "state_topic": "/joint_states",
-        "command_topic": "/joint_commands",
-        "config_topic": "/joint_config",
-        "rate_hz": 15.0,
-        "transport": "auto",
-        "host": "127.0.0.1",
-        "port": 9090
-      },
-      "input_choices": {
-        "preset": ["so_arm101"],
-        "transport": ["auto", "native", "rosbridge"]
-      }
+      "inputs": ["profile_id", "hardware"],
+      "outputs": ["found", "profile", "driver", "calibration", "path", "report"],
+      "input_types": {"profile_id": "Text", "hardware": "Dict"},
+      "output_types": {"found": "Bool", "profile": "Dict", "driver": "Dict", "calibration": "Dict", "path": "Text", "report": "Text"},
+      "input_defaults": {"profile_id": "so_arm101"},
+      "input_choices": {"profile_id": ["so_arm101"]}
     },
     "discovery": {
       "id": "discovery",
@@ -462,6 +436,7 @@
     }
   },
   "edges": [
+    {"from": "usb", "from_port": "recommended", "to": "preset", "to_port": "hardware"},
     {
       "from": "preset",
       "from_port": "driver",

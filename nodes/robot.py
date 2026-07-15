@@ -517,18 +517,26 @@ def stop_runtime_services() -> dict[str, Any]:
     inputs={
         "refresh": AnyPort,
         "port_filter": Text(default=""),
+        "match_vendor_id": Text(default=""),
+        "match_product_id": Text(default=""),
         "probe_open": Bool(default=False),
     },
     outputs={"found": Bool, "ready": Bool, "devices": List, "recommended": Dict, "permissions": Dict, "report": Text},
 )
 def robot_usb_discovery(ctx: dict) -> dict:
     text_filter = str(ctx.get("port_filter") or "").strip()
+    vendor_filter = str(ctx.get("match_vendor_id") or "").strip().lower().removeprefix("0x")
+    product_filter = str(ctx.get("match_product_id") or "").strip().lower().removeprefix("0x")
     probe_open = bool(ctx.get("probe_open", False))
     devices = [
         _serial_device_info(path, probe_open=probe_open)
         for path in _serial_candidate_paths()
     ]
     devices = [device for device in devices if _serial_device_matches_filter(device, text_filter)]
+    if vendor_filter:
+        devices = [device for device in devices if str(device.get("vendor_id") or "").lower() == vendor_filter]
+    if product_filter:
+        devices = [device for device in devices if str(device.get("product_id") or "").lower() == product_filter]
     recommended = _recommended_serial_device(devices)
     found = bool(devices)
     ready = bool(recommended.get("accessible"))
@@ -549,7 +557,10 @@ def robot_usb_discovery(ctx: dict) -> dict:
 
     lines = ["USB robot discovery"]
     if not devices:
-        if text_filter:
+        if vendor_filter or product_filter:
+            expected = f"{vendor_filter or '*'}:{product_filter or '*'}"
+            lines.append(f"no USB serial ports matched saved vid:pid {expected}")
+        elif text_filter:
             lines.append(f"no USB serial ports matched filter: {text_filter}")
         else:
             lines.append("no USB serial ports detected (COM* on Windows; /dev/serial/by-id/*, /dev/ttyACM*, /dev/ttyUSB* on Linux)")
@@ -775,11 +786,14 @@ def robot_driver_launcher(ctx: dict) -> dict:
     },
 )
 def robot_discovery(ctx: dict) -> dict:
+    driver = _driver_from_ctx(ctx)
+    match = driver.get("match") if isinstance(driver.get("match"), dict) else {}
     usb = robot_usb_discovery({
         "port_filter": ctx.get("port_filter", ""),
+        "match_vendor_id": match.get("vendor_id", ""),
+        "match_product_id": match.get("product_id", ""),
         "probe_open": bool(ctx.get("probe_open", False)),
     })
-    driver = _driver_from_ctx(ctx)
     serial_port = str(ctx.get("serial_port") or (usb.get("recommended") or {}).get("path") or "").strip()
     driver_result = robot_driver_launcher({
         "action": ctx.get("action", "check"),
