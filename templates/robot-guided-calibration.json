@@ -69,9 +69,9 @@
         "safety_margin_deg": 3.0
       },
       "inputs": ["action", "run_id", "profile", "hardware_id", "hardware", "pose", "torque_enabled", "require_released", "safety_margin_deg"],
-      "outputs": ["live", "state", "active", "data_ready", "samples", "pose", "observed", "home", "calibration", "profile", "driver", "saved", "path", "dashboard", "report"],
+      "outputs": ["live", "state", "active", "data_ready", "samples", "pose", "capturing_joint", "range_updates", "observed", "home", "calibration", "profile", "driver", "saved", "path", "dashboard", "report"],
       "input_types": {"action": "Text", "run_id": "Text", "profile": "Dict", "hardware_id": "Text", "hardware": "Dict", "pose": "Dict", "torque_enabled": "Bool", "require_released": "Bool", "safety_margin_deg": "Float"},
-      "output_types": {"live": "Bool", "state": "Text", "active": "Bool", "data_ready": "Bool", "samples": "Int", "pose": "Dict", "observed": "Dict", "home": "Dict", "calibration": "Dict", "profile": "Dict", "driver": "Dict", "saved": "Bool", "path": "Text", "dashboard": "Image", "report": "Text"},
+      "output_types": {"live": "Bool", "state": "Text", "active": "Bool", "data_ready": "Bool", "samples": "Int", "pose": "Dict", "capturing_joint": "Text", "range_updates": "Dict", "observed": "Dict", "home": "Dict", "calibration": "Dict", "profile": "Dict", "driver": "Dict", "saved": "Bool", "path": "Text", "dashboard": "Image", "report": "Text"},
       "input_defaults": {"action": "check", "run_id": "robot_calibration", "hardware_id": "", "torque_enabled": true, "require_released": true, "safety_margin_deg": 3.0},
       "input_choices": {"action": ["check", "start", "pause", "capture_home", "finish", "cancel"]}
     },
