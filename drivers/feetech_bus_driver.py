@@ -168,7 +168,10 @@ def _apply_command(
         if joint is None:
             continue
         deg = clamp_degrees(math.degrees(float(position_rad)), joint)
-        _write_goal(sdk, packet, port, joint.servo_id, degrees_to_ticks(deg, joint), confirm=False)
+        # Consume the servo's status packet for every write. Tx-only leaves
+        # response bytes on this half-duplex bus on common STS3215 setups;
+        # the following position read then sees a truncated/misaligned packet.
+        _write_goal(sdk, packet, port, joint.servo_id, degrees_to_ticks(deg, joint), confirm=True)
 
 
 def _run_rosbridge(
@@ -183,25 +186,61 @@ def _run_rosbridge(
 ) -> None:
     roslibpy = imports["roslibpy"]
     ros = roslibpy.Ros(host=args.host, port=args.rosbridge_port)
-    ros.run(timeout=max(1.0, args.connect_timeout))
-    if not ros.is_connected:
-        _fail(f"could not connect to rosbridge at ws://{args.host}:{args.rosbridge_port}")
+    # ``roslibpy`` uses a reconnecting Twisted client. Keep its reactor and
+    # topic objects alive for the lifetime of the hardware driver: returning
+    # from this function on the first dropped WebSocket used to leave a Python
+    # process that looked healthy to Blacknode but no longer published state.
+    while not stop_event.is_set() and not ros.is_connected:
+        try:
+            ros.run(timeout=max(1.0, args.connect_timeout))
+        except Exception:
+            if stop_event.wait(1.0):
+                break
+    if stop_event.is_set():
+        ros.terminate()
+        return
     state_pub = roslibpy.Topic(ros, args.state_topic, "sensor_msgs/msg/JointState")
     config_pub = roslibpy.Topic(ros, args.config_topic, "std_msgs/msg/String", latch=True)
     command_sub = roslibpy.Topic(ros, args.command_topic, "sensor_msgs/msg/JointState")
+    bus_lock = threading.Lock()
+
+    def apply_command_safely(message: Any) -> None:
+        try:
+            # roslibpy callbacks run on a reactor worker while the state loop
+            # below reads the same half-duplex serial bus. Feetech packet
+            # transactions must never overlap.
+            with bus_lock:
+                _apply_command(message, joints, sdk, packet, port)
+        except Exception as exc:  # keep one bad command from killing transport
+            print(f"robot command rejected: {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
+
     state_pub.advertise()
     config_pub.advertise()
-    command_sub.subscribe(lambda message: _apply_command(message, joints, sdk, packet, port))
+    command_sub.subscribe(apply_command_safely)
     last_known_ticks = dict(current_ticks)
     try:
         config_pub.publish(roslibpy.Message({"data": json.dumps(_config_payload(joints))}))
         state_pub.publish(roslibpy.Message(_joint_state_payload(last_known_ticks, joints)))
         period = 1.0 / max(0.1, args.rate_hz)
-        while ros.is_connected and not stop_event.wait(period):
-            for name, joint in joints.items():
-                ticks = _read_position_or_none(sdk, packet, port, joint.servo_id)
-                if ticks is not None:
-                    last_known_ticks[name] = ticks
+        was_connected = True
+        while not stop_event.wait(period):
+            if not ros.is_connected:
+                was_connected = False
+                continue
+            if not was_connected:
+                # Topic reconnect hooks are scheduled one second after the
+                # socket becomes ready. Wait for them, then refresh the
+                # latched config and current pose for late subscribers.
+                if stop_event.wait(1.1) or not ros.is_connected:
+                    continue
+                config_pub.publish(roslibpy.Message({"data": json.dumps(_config_payload(joints))}))
+                state_pub.publish(roslibpy.Message(_joint_state_payload(last_known_ticks, joints)))
+                was_connected = True
+            with bus_lock:
+                for name, joint in joints.items():
+                    ticks = _read_position_or_none(sdk, packet, port, joint.servo_id)
+                    if ticks is not None:
+                        last_known_ticks[name] = ticks
             state_pub.publish(roslibpy.Message(_joint_state_payload(last_known_ticks, joints)))
     finally:
         try:
@@ -227,7 +266,13 @@ def _read_position_or_none(sdk: Any, packet: Any, port: Any, servo_id: int) -> i
     bus error on one poll should not take down an otherwise-healthy driver
     process, so this returns None instead of exiting."""
     address, _width = ADDR_PRESENT_POSITION
-    ticks, comm_result, servo_error = packet.read2ByteTxRx(port, servo_id, address)
+    try:
+        ticks, comm_result, servo_error = packet.read2ByteTxRx(port, servo_id, address)
+    except Exception:
+        # scservo_sdk can raise IndexError when a serial response is shorter
+        # than the protocol header promised. Treat malformed/transient packets
+        # exactly like COMM_RX_CORRUPT and retain the last valid joint value.
+        return None
     if comm_result != sdk.COMM_SUCCESS or servo_error != 0:
         return None
     return int(ticks)

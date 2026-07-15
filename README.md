@@ -120,6 +120,15 @@ pip install -r packages/blacknode-robot/requirements.txt   # servo SDK + roslibp
   `--no-torque-off-on-exit` in the preset's `command_template` (or a custom
   `RobotDriverDescriptor`) only if holding position is actually the safer
   failure mode for your specific mounting.
+- **Rosbridge reconnects without restarting the hardware driver.** A dropped
+  WebSocket no longer leaves an alive-but-silent process. The driver keeps the
+  serial session open, waits for `roslibpy` to reconnect, then republishes its
+  safety configuration and current joint pose before resuming state updates.
+  Command writes and state reads share one bus lock so Feetech packet
+  transactions cannot overlap. Confirmed command writes consume each servo's
+  status response, and malformed short read packets retain the last valid pose
+  instead of terminating the driver. Late driver exits retain their error text
+  in runtime status instead of disappearing as a generic offline process.
 - **The editor's "Stop all" reaches the driver process too.** `robot.py`
   exposes `runtime_status()`/`stop_runtime_services()` (registered in the
   main Blacknode editor's `_RUNTIME_MODULES`), so pressing "Stop all" sends

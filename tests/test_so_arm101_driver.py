@@ -1,6 +1,7 @@
 import importlib.util
 import math
 import sys
+from types import SimpleNamespace
 from pathlib import Path
 
 import blacknode  # noqa: F401
@@ -97,12 +98,152 @@ def test_driver_rosbridge_payload_contains_discovered_joint_names():
     assert mod._config_payload(joints)["commands_allowed"] is True
 
 
+def test_driver_transient_short_packet_does_not_crash_pose_polling():
+    mod = _load_driver_module()
+    sdk = SimpleNamespace(COMM_SUCCESS=0)
+
+    def short_packet(*_args):
+        raise IndexError("list index out of range")
+
+    packet = SimpleNamespace(read2ByteTxRx=short_packet)
+
+    assert mod._read_position_or_none(sdk, packet, object(), 1) is None
+
+
+def test_driver_command_consumes_servo_status_response():
+    mod = _load_driver_module()
+    joints = mod.parse_joint_map("shoulder_pan:1:-100:100", {}, set())
+    writes = []
+    packet = SimpleNamespace(
+        write2ByteTxRx=lambda _port, servo_id, address, ticks: writes.append(
+            (servo_id, address, ticks)
+        ) or (0, 0),
+        write2ByteTxOnly=lambda *_args: (_ for _ in ()).throw(
+            AssertionError("command writes must consume the servo response")
+        ),
+    )
+
+    mod._apply_command(
+        {"name": ["shoulder_pan"], "position": [math.radians(5.0)]},
+        joints,
+        SimpleNamespace(COMM_SUCCESS=0),
+        packet,
+        object(),
+    )
+
+    assert len(writes) == 1
+    assert writes[0][0] == 1
+
+
 def test_driver_uses_ros2_rosbridge_message_type_names():
     source = _DRIVER_PATH.read_text(encoding="utf-8")
 
     assert '"sensor_msgs/msg/JointState"' in source
     assert '"std_msgs/msg/String"' in source
     assert '"sensor_msgs/JointState"' not in source
+
+
+def test_driver_rosbridge_reconnects_and_resumes_state_stream():
+    mod = _load_driver_module()
+    joints = mod.parse_joint_map("shoulder_pan:1:-100:100", {}, set())
+
+    class FakeRos:
+        def __init__(self, **_kwargs):
+            self.is_connected = False
+            self.terminated = False
+
+        def run(self, timeout):
+            self.is_connected = True
+
+        def terminate(self):
+            self.terminated = True
+            self.is_connected = False
+
+    topics = {}
+
+    class FakeTopic:
+        def __init__(self, ros, name, message_type, **_kwargs):
+            self.ros = ros
+            self.name = name
+            self.message_type = message_type
+            self.messages = []
+            topics[name] = self
+
+        def advertise(self):
+            pass
+
+        def unadvertise(self):
+            pass
+
+        def subscribe(self, callback):
+            self.callback = callback
+
+        def unsubscribe(self):
+            pass
+
+        def publish(self, message):
+            self.messages.append(message)
+
+    fake_roslibpy = SimpleNamespace(
+        Ros=FakeRos,
+        Topic=FakeTopic,
+        Message=lambda value: value,
+    )
+    ros_box = {}
+    original_ros = fake_roslibpy.Ros
+
+    def make_ros(**kwargs):
+        ros_box["ros"] = original_ros(**kwargs)
+        return ros_box["ros"]
+
+    fake_roslibpy.Ros = make_ros
+
+    class ReconnectStopEvent:
+        def __init__(self):
+            self.period_waits = 0
+
+        def is_set(self):
+            return False
+
+        def wait(self, timeout):
+            if timeout == 1.1:
+                ros_box["ros"].is_connected = True
+                return False
+            self.period_waits += 1
+            if self.period_waits == 1:
+                ros_box["ros"].is_connected = False
+                return False
+            if self.period_waits == 2:
+                ros_box["ros"].is_connected = True
+                return False
+            return True
+
+    args = SimpleNamespace(
+        host="127.0.0.1",
+        rosbridge_port=9090,
+        connect_timeout=1.0,
+        state_topic="/joint_states",
+        config_topic="/joint_config",
+        command_topic="/joint_commands",
+        rate_hz=10.0,
+    )
+    sdk = SimpleNamespace(COMM_SUCCESS=0)
+    packet = SimpleNamespace(read2ByteTxRx=lambda *_args: (2048, 0, 0))
+
+    mod._run_rosbridge(
+        args,
+        {"roslibpy": fake_roslibpy},
+        joints,
+        sdk,
+        packet,
+        object(),
+        {"shoulder_pan": 2048},
+        ReconnectStopEvent(),
+    )
+
+    assert len(topics["/joint_config"].messages) == 2
+    assert len(topics["/joint_states"].messages) >= 3
+    assert ros_box["ros"].terminated is True
 
 
 def test_driver_home_ticks_and_invert_overrides():
