@@ -40,7 +40,7 @@ driver.
 | `RobotCalibrationRecorder` | Safely records released-arm limits and a home pose for one physical robot |
 | `RobotDriverLauncher` | Starts/stops a driver process from the descriptor |
 | `RobotDiscovery` | Runs the generic setup path and outputs a robot profile |
-| `RobotConnectionDashboard` | Shows USB, driver, ROS interface, and live joint-state readiness on one demo screen |
+| `RobotConnectionDashboard` | Shows USB, driver, ROS interface, live joint positions, home references, safe ranges, and calibration source on one demo screen |
 
 ## Contract
 

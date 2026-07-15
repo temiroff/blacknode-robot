@@ -939,7 +939,42 @@ def robot_connection_dashboard(ctx: dict) -> dict:
     serial_port = str(recommended.get("path") or "not detected")
     driver_name = str(driver.get("name") or driver.get("id") or "not selected")
     transport = str((robot.get("interface") or {}).get("kind") or driver.get("transport") or "none")
-    joints = sorted(pose)
+    configured_joints = driver.get("joints") if isinstance(driver.get("joints"), list) else []
+    joint_configs = {
+        str(joint.get("id")): dict(joint)
+        for joint in configured_joints
+        if isinstance(joint, dict) and str(joint.get("id") or "").strip()
+    }
+    joints = list(joint_configs)
+    joints.extend(name for name in sorted(pose) if name not in joint_configs)
+    effective_profile = driver.get("profile") if isinstance(driver.get("profile"), dict) else {}
+    calibration = effective_profile.get("calibration") if isinstance(effective_profile.get("calibration"), dict) else {}
+    calibration_path = str(driver.get("calibration_path") or "").strip()
+    calibrated = bool(calibration_path or calibration)
+    hardware_id = str(
+        driver.get("hardware_id")
+        or calibration.get("hardware_id")
+        or recommended.get("serial_number")
+        or recommended.get("serial")
+        or serial_port
+    )
+
+    joint_details = []
+    for name in joints:
+        config = joint_configs.get(name, {})
+        current = pose.get(name)
+        safe_min = config.get("safe_min_deg", config.get("min_deg"))
+        safe_max = config.get("safe_max_deg", config.get("max_deg"))
+        joint_details.append({
+            "joint": name,
+            "current_deg": current,
+            "home_deg": 0.0 if config else None,
+            "home_ticks": config.get("home_ticks"),
+            "home_offset_deg": config.get("home_offset_deg"),
+            "safe_min_deg": safe_min,
+            "safe_max_deg": safe_max,
+            "calibrated": calibrated,
+        })
     summary = {
         "ready": ready,
         "usb_ready": usb_ready,
@@ -952,6 +987,11 @@ def robot_connection_dashboard(ctx: dict) -> dict:
         "transport": transport,
         "joint_count": len(joints),
         "pose": pose,
+        "calibrated": calibrated,
+        "calibration_status": "saved calibration" if calibrated else "profile defaults",
+        "calibration_path": calibration_path,
+        "hardware_id": hardware_id,
+        "joints": joint_details,
     }
 
     stages = [
@@ -974,13 +1014,24 @@ def robot_connection_dashboard(ctx: dict) -> dict:
         )
 
     pose_rows = []
-    for index, name in enumerate(joints[:6]):
-        value = pose.get(name)
-        value_text = f"{value:.2f}°" if isinstance(value, (int, float)) else str(value)
-        y = 366 + index * 38
+    for index, detail in enumerate(joint_details[:6]):
+        value = detail["current_deg"]
+        value_text = f"{value:.2f}°" if isinstance(value, (int, float)) else "—"
+        home_ticks = detail["home_ticks"]
+        home_text = f"0.00° · {home_ticks}t" if isinstance(home_ticks, (int, float)) else "—"
+        safe_min = detail["safe_min_deg"]
+        safe_max = detail["safe_max_deg"]
+        range_text = (
+            f"{float(safe_min):.2f}° .. {float(safe_max):.2f}°"
+            if isinstance(safe_min, (int, float)) and isinstance(safe_max, (int, float))
+            else "—"
+        )
+        y = 388 + index * 38
         pose_rows.append(
-            f'<text x="74" y="{y}" fill="#cbd5e1" font-family="monospace" font-size="15">{_svg_text(name, 24)}</text>'
-            f'<text x="510" y="{y}" text-anchor="end" fill="#f8fafc" font-family="monospace" font-size="15" font-weight="700">{_svg_text(value_text, 18)}</text>'
+            f'<text x="64" y="{y}" fill="#cbd5e1" font-family="monospace" font-size="14">{_svg_text(detail["joint"], 20)}</text>'
+            f'<text x="310" y="{y}" text-anchor="end" fill="#f8fafc" font-family="monospace" font-size="14" font-weight="700">{_svg_text(value_text, 15)}</text>'
+            f'<text x="510" y="{y}" text-anchor="end" fill="#f8fafc" font-family="monospace" font-size="14">{_svg_text(home_text, 19)}</text>'
+            f'<text x="730" y="{y}" text-anchor="end" fill="#f8fafc" font-family="monospace" font-size="14">{_svg_text(range_text, 25)}</text>'
         )
 
     accent = "#22c55e" if ready else "#f59e0b"
@@ -990,23 +1041,36 @@ def robot_connection_dashboard(ctx: dict) -> dict:
         if ready
         else "Complete each readiness stage above. Motion remains blocked by default."
     )
-    svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="640" viewBox="0 0 1120 640">
-<rect width="1120" height="640" rx="28" fill="#0b1020"/>
+    calibration_color = "#22c55e" if calibrated else "#f59e0b"
+    calibration_label = "SAVED CALIBRATION" if calibrated else "PROFILE DEFAULTS"
+    calibration_detail = "Hardware-specific limits and home" if calibrated else "Calibrate this robot for measured values"
+    svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="680" viewBox="0 0 1120 680">
+<rect width="1120" height="680" rx="28" fill="#0b1020"/>
 <rect x="24" y="24" width="1072" height="92" rx="18" fill="#172033" stroke="#14b8a6" stroke-width="2"/>
 <text x="56" y="64" fill="#f8fafc" font-family="Arial,sans-serif" font-size="26" font-weight="800">ROBOT CONNECTION</text>
-<text x="56" y="91" fill="#93a4b8" font-family="Arial,sans-serif" font-size="15">Plug in → preset → driver → live state</text>
+<text x="56" y="91" fill="#93a4b8" font-family="Arial,sans-serif" font-size="15">Plug in → robot → driver → live state</text>
 <rect x="856" y="44" width="210" height="52" rx="26" fill="{accent}"/>
 <text x="961" y="77" text-anchor="middle" fill="#07111f" font-family="Arial,sans-serif" font-size="17" font-weight="900">{verdict}</text>
 {''.join(cards)}
-<rect x="36" y="316" width="510" height="274" rx="16" fill="#172033"/>
-<text x="64" y="344" fill="#93a4b8" font-family="Arial,sans-serif" font-size="13" font-weight="700">LIVE JOINT POSITIONS</text>
-{''.join(pose_rows) if pose_rows else '<text x="64" y="388" fill="#f59e0b" font-family="Arial,sans-serif" font-size="16">Waiting for /joint_states…</text>'}
-<rect x="570" y="316" width="514" height="274" rx="16" fill="#172033"/>
-<text x="598" y="352" fill="#93a4b8" font-family="Arial,sans-serif" font-size="13" font-weight="700">NEXT SAFE ACTION</text>
-<text x="598" y="398" fill="#f8fafc" font-family="Arial,sans-serif" font-size="18" font-weight="700">{_svg_text(next_step, 52)}</text>
-<text x="598" y="470" fill="#93a4b8" font-family="monospace" font-size="13">state: {_svg_text(robot.get('state_topic'), 36)}</text>
-<text x="598" y="500" fill="#93a4b8" font-family="monospace" font-size="13">command: {_svg_text(robot.get('command_topic'), 34)}</text>
-<text x="598" y="548" fill="{accent}" font-family="Arial,sans-serif" font-size="14" font-weight="700">Stop all uses the driver's safe shutdown path.</text>
+<rect x="36" y="316" width="720" height="328" rx="16" fill="#172033"/>
+<text x="64" y="344" fill="#93a4b8" font-family="Arial,sans-serif" font-size="13" font-weight="700">JOINT</text>
+<text x="310" y="344" text-anchor="end" fill="#93a4b8" font-family="Arial,sans-serif" font-size="13" font-weight="700">LIVE</text>
+<text x="510" y="344" text-anchor="end" fill="#93a4b8" font-family="Arial,sans-serif" font-size="13" font-weight="700">HOME</text>
+<text x="730" y="344" text-anchor="end" fill="#93a4b8" font-family="Arial,sans-serif" font-size="13" font-weight="700">SAFE RANGE</text>
+<line x1="64" y1="356" x2="730" y2="356" stroke="#334155"/>
+{''.join(pose_rows) if pose_rows else '<text x="64" y="394" fill="#f59e0b" font-family="Arial,sans-serif" font-size="16">Waiting for robot joint configuration and /joint_states…</text>'}
+<text x="64" y="624" fill="#64748b" font-family="Arial,sans-serif" font-size="12">Home is 0° in robot coordinates; “t” is the saved raw servo tick.</text>
+<rect x="780" y="316" width="304" height="328" rx="16" fill="#172033"/>
+<text x="808" y="346" fill="#93a4b8" font-family="Arial,sans-serif" font-size="13" font-weight="700">CALIBRATION</text>
+<rect x="808" y="362" width="248" height="38" rx="19" fill="{calibration_color}"/>
+<text x="932" y="387" text-anchor="middle" fill="#07111f" font-family="Arial,sans-serif" font-size="13" font-weight="900">{calibration_label}</text>
+<text x="808" y="428" fill="#cbd5e1" font-family="Arial,sans-serif" font-size="13">{_svg_text(calibration_detail, 39)}</text>
+<text x="808" y="458" fill="#93a4b8" font-family="monospace" font-size="12">device: {_svg_text(hardware_id, 28)}</text>
+<text x="808" y="504" fill="#93a4b8" font-family="Arial,sans-serif" font-size="13" font-weight="700">NEXT SAFE ACTION</text>
+<text x="808" y="536" fill="#f8fafc" font-family="Arial,sans-serif" font-size="14" font-weight="700">{_svg_text(next_step, 35)}</text>
+<text x="808" y="580" fill="#93a4b8" font-family="monospace" font-size="12">state: {_svg_text(robot.get('state_topic'), 27)}</text>
+<text x="808" y="606" fill="#93a4b8" font-family="monospace" font-size="12">command: {_svg_text(robot.get('command_topic'), 25)}</text>
+<text x="808" y="628" fill="{accent}" font-family="Arial,sans-serif" font-size="12" font-weight="700">Stop all uses safe shutdown.</text>
 </svg>'''
     report = (
         f"robot connection dashboard {'READY' if ready else 'WAITING'}: "
