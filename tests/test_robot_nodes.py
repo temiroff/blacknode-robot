@@ -17,6 +17,7 @@ EXPECTED_NODES = [
     "RobotDriverLauncher",
     "RobotDiscovery",
     "RobotDriverPreset",
+    "Robot",
     "RobotConnectionDashboard",
     "RobotJointDefinition",
     "RobotJointList",
@@ -99,6 +100,23 @@ def test_usb_discovery_uses_pyserial_com_ports(monkeypatch):
     assert result["recommended"]["product_id"] == "7523"
     assert "COM7" in result["report"]
     assert "SO-ARM101 Servo Bus" in result["report"]
+
+
+def test_usb_discovery_filters_using_saved_vid_pid(monkeypatch):
+    monkeypatch.setattr(robot_nodes, "_serial_candidate_paths", lambda: ["COM3", "COM9"])
+    devices = {
+        "COM3": {"path": "COM3", "vendor_id": "1a86", "product_id": "55d3", "accessible": True, "fixes": []},
+        "COM9": {"path": "COM9", "vendor_id": "1234", "product_id": "abcd", "accessible": True, "fixes": []},
+    }
+    monkeypatch.setattr(robot_nodes, "_serial_device_info", lambda path, probe_open=False: devices[path])
+
+    result = _NODE_REGISTRY["RobotUSBDiscovery"]({
+        "match_vendor_id": "0x1A86",
+        "match_product_id": "55D3",
+    })
+
+    assert [device["path"] for device in result["devices"]] == ["COM3"]
+    assert result["recommended"]["path"] == "COM3"
 
 
 def test_driver_descriptor_builds_generic_contract():
@@ -311,6 +329,37 @@ def test_visual_robot_definition_saves_and_loads_named_profile(monkeypatch, tmp_
     assert {item["id"] for item in listed["profiles"]} == {"so_arm101", "my_custom_arm"}
 
 
+def test_robot_definition_discovers_driver_choices_and_usb_identity():
+    definition_fn = _NODE_REGISTRY["RobotDefinition"]
+    assert "feetech_bus_driver.py" in definition_fn._bn_input_choices["driver_script"]
+
+    joint = _NODE_REGISTRY["RobotJointDefinition"]({"joint_id": "base", "servo_id": 1})["joint"]
+    result = definition_fn({
+        "profile_id": "usb_arm",
+        "joints": [joint],
+        "hardware": {"vendor_id": "1A86", "product_id": "55D3", "serial": "ABC"},
+    })
+
+    assert result["valid"] is True
+    assert result["profile"]["match"] == {"vendor_id": "1a86", "product_id": "55d3"}
+    assert "USB discovery" in result["report"]
+
+
+def test_joint_list_accepts_more_than_sixteen_numbered_inputs():
+    joint_2 = {"id": "second", "servo_id": 2}
+    joint_25 = {"id": "twenty_fifth", "servo_id": 25}
+    result = _NODE_REGISTRY["RobotJointList"]({"joint_25": joint_25, "joint_2": joint_2})
+
+    assert result["count"] == 2
+    assert [joint["id"] for joint in result["joints"]] == ["second", "twenty_fifth"]
+
+
+def test_robot_profile_selector_is_a_dropdown():
+    assert "so_arm101" in _NODE_REGISTRY["Robot"]._bn_input_choices["profile_id"]
+    assert _NODE_REGISTRY["RobotProfileLoad"]._bn_hidden is True
+    assert _NODE_REGISTRY["RobotDriverPreset"]._bn_hidden is True
+
+
 def test_profile_duplicate_turns_builtin_into_editable_local_robot(monkeypatch, tmp_path):
     monkeypatch.setenv("BLACKNODE_ROBOTS_DIR", str(tmp_path / "robots"))
 
@@ -426,7 +475,11 @@ def test_calibration_refuses_to_record_with_torque_enabled(monkeypatch, tmp_path
 
 def test_custom_robot_templates_validate():
     templates = Path(__file__).resolve().parents[1] / "templates"
-    for name in ("editable-so-arm101-profile.json", "robot-guided-calibration.json"):
+    for name in (
+        "editable-so-arm101-profile.json",
+        "robot-guided-calibration.json",
+        "so-arm101-motion-test.json",
+    ):
         workflow = json.loads((templates / name).read_text(encoding="utf-8"))
         report = validate_workflow(workflow)
         assert report.ok, (name, [issue.message for issue in report.issues])

@@ -27,8 +27,28 @@ _TICKS_PER_REV = 4095
 _DEFAULT_HOME_TICKS = 2048
 _DRIVERS_DIR = Path(__file__).resolve().parents[1] / "drivers"
 _ID_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+_USB_ID_PATTERN = re.compile(r"^[0-9a-f]{4}$")
 _calibration_lock = threading.Lock()
 _calibration_sessions: dict[str, dict[str, Any]] = {}
+
+
+def _available_driver_scripts() -> list[str]:
+    """Return installed driver entry points for editor dropdown metadata."""
+    if not _DRIVERS_DIR.exists():
+        return []
+    return sorted(
+        path.name
+        for path in _DRIVERS_DIR.iterdir()
+        if path.is_file() and not path.name.startswith("_") and path.name.endswith("_driver.py")
+    )
+
+
+_DRIVER_SCRIPT_CHOICES = _available_driver_scripts()
+_DEFAULT_DRIVER_SCRIPT = (
+    "feetech_bus_driver.py"
+    if "feetech_bus_driver.py" in _DRIVER_SCRIPT_CHOICES
+    else (_DRIVER_SCRIPT_CHOICES[0] if _DRIVER_SCRIPT_CHOICES else "")
+)
 
 
 def _slug(value: Any, fallback: str = "robot") -> str:
@@ -88,6 +108,11 @@ def _validate_profile(profile: dict[str, Any]) -> list[str]:
     joints = _joint_list(profile)
     if not joints:
         errors.append("add at least one RobotJointDefinition")
+    match = profile.get("match") if isinstance(profile.get("match"), dict) else {}
+    for key, label in (("vendor_id", "vendor id"), ("product_id", "product id")):
+        value = str(match.get(key) or "")
+        if value and not _USB_ID_PATTERN.fullmatch(value):
+            errors.append(f"USB {label} must be four hexadecimal characters, for example 1a86")
     names: set[str] = set()
     servo_ids: set[int] = set()
     for index, joint in enumerate(joints, start=1):
@@ -194,6 +219,11 @@ def load_profile(profile_id: str) -> tuple[dict[str, Any] | None, Path | None]:
     return builtin_profile(profile_id), None
 
 
+def _available_profile_ids() -> list[str]:
+    ids = [str(item["id"]) for item in list_profiles()]
+    return ids or ["so_arm101"]
+
+
 def _hardware_id(ctx: dict[str, Any]) -> str:
     explicit = str(ctx.get("hardware_id") or "").strip()
     hardware = ctx.get("hardware") if isinstance(ctx.get("hardware"), dict) else {}
@@ -206,6 +236,17 @@ def _hardware_id(ctx: dict[str, Any]) -> str:
         or recommended.get("path")
         or ""
     ).strip()
+
+
+def _hardware_details(ctx: dict[str, Any]) -> dict[str, Any]:
+    hardware = ctx.get("hardware") if isinstance(ctx.get("hardware"), dict) else {}
+    recommended = hardware.get("recommended") if isinstance(hardware.get("recommended"), dict) else {}
+    return recommended or hardware
+
+
+def _usb_id(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    return text[2:] if text.startswith("0x") else text
 
 
 def _apply_calibration(profile: dict[str, Any], calibration: dict[str, Any] | None) -> dict[str, Any]:
@@ -335,18 +376,23 @@ def robot_joint_definition(ctx: dict) -> dict:
     return {"joint": joint, "report": report}
 
 
-_JOINT_INPUTS = {f"joint_{index}": Dict for index in range(1, 17)}
+_JOINT_INPUTS = {"joint_1": Dict}
 
 
 @node(
     name="RobotJointList",
     category=_CATEGORY,
-    description="Collect up to 16 RobotJointDefinition outputs into one ordered joint list.",
+    description="Collect any number of joint definitions; the editor adds another joint socket as the list fills.",
     inputs=_JOINT_INPUTS,
     outputs={"joints": List, "count": Int, "report": Text},
 )
 def robot_joint_list(ctx: dict) -> dict:
-    joints = [dict(ctx[name]) for name in _JOINT_INPUTS if isinstance(ctx.get(name), dict) and ctx.get(name)]
+    def sort_key(name: str) -> tuple[int, str]:
+        suffix = name.rsplit("_", 1)[-1]
+        return (int(suffix), name) if suffix.isdigit() else (999_999, name)
+
+    inputs = sorted((name for name in ctx if name.startswith("joint_")), key=sort_key)
+    joints = [dict(ctx[name]) for name in inputs if isinstance(ctx.get(name), dict) and ctx.get(name)]
     return {"joints": joints, "count": len(joints), "report": f"assembled {len(joints)} joint definition(s)"}
 
 
@@ -358,10 +404,11 @@ def robot_joint_list(ctx: dict) -> dict:
         "profile_id": Text(default="my_robot"),
         "display_name": Text(default="My Robot"),
         "protocol": Enum(["feetech", "custom"], default="feetech"),
-        "driver_script": Text(default="feetech_bus_driver.py"),
+        "driver_script": Enum(_DRIVER_SCRIPT_CHOICES, default=_DEFAULT_DRIVER_SCRIPT),
         "command_template": Text(default=""),
         "baudrate": Int(default=1_000_000),
         "joints": List,
+        "hardware": Dict,
         "vendor_id": Text(default=""),
         "product_id": Text(default=""),
         "transport": Enum(["auto", "native", "rosbridge"], default="auto"),
@@ -379,6 +426,11 @@ def robot_joint_list(ctx: dict) -> dict:
 def robot_definition(ctx: dict) -> dict:
     requested_id = str(ctx.get("profile_id") or "my_robot")
     profile_id = _slug(requested_id, "my_robot")
+    hardware = _hardware_details(ctx)
+    manual_vendor_id = _usb_id(ctx.get("vendor_id"))
+    manual_product_id = _usb_id(ctx.get("product_id"))
+    vendor_id = manual_vendor_id or _usb_id(hardware.get("vendor_id"))
+    product_id = manual_product_id or _usb_id(hardware.get("product_id"))
     profile = {
         "schema_version": _PROFILE_SCHEMA,
         "id": profile_id,
@@ -399,14 +451,20 @@ def robot_definition(ctx: dict) -> dict:
             "units": str(ctx.get("units") or "degrees"),
         },
         "match": {
-            "vendor_id": str(ctx.get("vendor_id") or "").strip().lower(),
-            "product_id": str(ctx.get("product_id") or "").strip().lower(),
+            "vendor_id": vendor_id,
+            "product_id": product_id,
         },
         "joints": [dict(value) for value in (ctx.get("joints") or []) if isinstance(value, dict)],
     }
     errors = _validate_profile(profile)
     notes = [] if requested_id == profile_id else [f"normalized profile id '{requested_id}' -> '{profile_id}'"]
     report = f"robot definition: {profile['display_name']} ({profile_id}), {len(profile['joints'])} joint(s)"
+    if vendor_id and product_id:
+        source = "manual override" if manual_vendor_id or manual_product_id else "USB discovery"
+        report += f"\nUSB match: {vendor_id}:{product_id} ({source})"
+    else:
+        report += "\nUSB match: not set; connect RobotUSBDiscovery.recommended to hardware or enter an advanced override"
+    report += f"\ndriver: {profile['driver']['script'] or 'custom command template'}"
     if notes:
         report += "\n" + "\n".join(notes)
     if errors:
@@ -449,10 +507,13 @@ def robot_profile_save(ctx: dict) -> dict:
 
 
 @node(
-    name="RobotProfileLoad",
+    name="Robot",
     category=_CATEGORY,
-    description="Load a reusable robot profile and automatically apply calibration for a physical USB serial when supplied.",
-    inputs={"profile_id": Text(default="so_arm101"), "hardware_id": Text(default=""), "hardware": Dict},
+    description="Select a built-in or saved robot and automatically apply calibration from connected USB hardware.",
+    inputs={
+        "profile_id": Enum(_available_profile_ids(), default="so_arm101"),
+        "hardware": Dict,
+    },
     outputs={"found": Bool, "profile": Dict, "driver": Dict, "calibration": Dict, "path": Text, "report": Text},
 )
 def robot_profile_load(ctx: dict) -> dict:
@@ -473,8 +534,25 @@ def robot_profile_load(ctx: dict) -> dict:
         "report": (
             f"loaded robot profile '{profile_id}' ({len(_joint_list(effective))} joint(s))"
             + (f"\ncalibration: {driver['calibration_path']}" if driver.get("calibration_path") else "\ncalibration: none")
+            + (f"\nhardware: {hardware_id} (automatic from USB discovery)" if hardware_id else "\nhardware: not connected; connect USB discovery to select a device calibration")
         ),
     }
+
+
+@node(
+    name="RobotProfileLoad",
+    category=_CATEGORY,
+    hidden=True,
+    description="Compatibility alias for Robot. New workflows should use the generic Robot node.",
+    inputs={
+        "profile_id": Enum(_available_profile_ids(), default="so_arm101"),
+        "hardware_id": Text(default=""),
+        "hardware": Dict,
+    },
+    outputs={"found": Bool, "profile": Dict, "driver": Dict, "calibration": Dict, "path": Text, "report": Text},
+)
+def robot_profile_load_compat(ctx: dict) -> dict:
+    return robot_profile_load(ctx)
 
 
 @node(
@@ -500,7 +578,7 @@ def robot_profile_list(ctx: dict) -> dict:
     category=_CATEGORY,
     description="Duplicate a built-in or saved profile under a new editable lowercase id.",
     inputs={
-        "source_profile_id": Text(default="so_arm101"),
+        "source_profile_id": Enum(_available_profile_ids(), default="so_arm101"),
         "new_profile_id": Text(default="my_robot"),
         "display_name": Text(default="My Robot"),
         "overwrite": Bool(default=False),

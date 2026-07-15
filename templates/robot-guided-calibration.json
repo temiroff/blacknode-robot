@@ -13,16 +13,17 @@
   "node_meta": {
     "usb": {
       "id": "usb", "type": "RobotUSBDiscovery", "pos": [40, 170],
-      "params": {"port_filter": "", "probe_open": false},
-      "inputs": ["refresh", "port_filter", "probe_open"], "outputs": ["found", "ready", "devices", "recommended", "permissions", "report"],
-      "input_types": {"refresh": "Any", "port_filter": "Text", "probe_open": "Bool"}, "output_types": {"found": "Bool", "ready": "Bool", "devices": "List", "recommended": "Dict", "permissions": "Dict", "report": "Text"},
-      "input_defaults": {"port_filter": "", "probe_open": false}
+      "params": {"port_filter": "", "match_vendor_id": "", "match_product_id": "", "probe_open": false},
+      "inputs": ["refresh", "port_filter", "match_vendor_id", "match_product_id", "probe_open"], "outputs": ["found", "ready", "devices", "recommended", "permissions", "report"],
+      "input_types": {"refresh": "Any", "port_filter": "Text", "match_vendor_id": "Text", "match_product_id": "Text", "probe_open": "Bool"}, "output_types": {"found": "Bool", "ready": "Bool", "devices": "List", "recommended": "Dict", "permissions": "Dict", "report": "Text"},
+      "input_defaults": {"port_filter": "", "match_vendor_id": "", "match_product_id": "", "probe_open": false}
     },
     "profile": {
-      "id": "profile", "type": "RobotProfileLoad", "pos": [400, 170],
-      "params": {"profile_id": "so_arm101", "hardware_id": ""},
-      "inputs": ["profile_id", "hardware_id", "hardware"], "outputs": ["found", "profile", "driver", "calibration", "path", "report"],
-      "input_types": {"profile_id": "Text", "hardware_id": "Text", "hardware": "Dict"}, "output_types": {"found": "Bool", "profile": "Dict", "driver": "Dict", "calibration": "Dict", "path": "Text", "report": "Text"}, "input_defaults": {"profile_id": "so_arm101", "hardware_id": ""}
+      "id": "profile", "type": "Robot", "pos": [400, 170],
+      "params": {"profile_id": "so_arm101"},
+      "inputs": ["profile_id", "hardware"], "outputs": ["found", "profile", "driver", "calibration", "path", "report"],
+      "input_types": {"profile_id": "Text", "hardware": "Dict"}, "output_types": {"found": "Bool", "profile": "Dict", "driver": "Dict", "calibration": "Dict", "path": "Text", "report": "Text"}, "input_defaults": {"profile_id": "so_arm101"},
+      "input_choices": {"profile_id": ["so_arm101"]}
     },
     "discovery": {
       "id": "discovery", "type": "RobotDiscovery", "pos": [760, 150],
