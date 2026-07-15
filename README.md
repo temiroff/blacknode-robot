@@ -136,14 +136,19 @@ Open **Robot Guided Calibration** after saving a profile:
 4. Slowly move every joint through the safe physical range you intend to use.
    Do not force a hard stop.
 5. Put the robot in the pose that should read as zero and press **Capture Home**.
-6. Press **Save calibration**. The recorder applies the configured safety
+6. Press **Stop recording** whenever you want to pause extrema collection
+   without losing samples. Current pose remains live; press **Resume recording**
+   to continue.
+7. Press **Save calibration**. The recorder applies the configured safety
    margin inside the observed extrema and saves it under the hardware ID.
-7. Press **Hold position** only while the arm is supported and the workspace is
+8. Press **Hold position** only while the arm is supported and the workspace is
    clear.
 
 Recording never commands movement. It refuses to start while torque is on, and
 it will not save until every configured joint has been observed and a home pose
-has been captured. `RobotProfileLoad` automatically applies the matching
+has been captured. Its CURRENT pose, observed ranges, sample count, dashboard,
+report, and connected Output nodes update through the live runtime. `Robot`
+automatically applies the matching
 device calibration when given the discovery hardware output; another physical
 robot with the same profile keeps a separate calibration.
 
