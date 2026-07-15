@@ -48,6 +48,11 @@ stops the prior managed process before starting the selected profile. A
 `PROFILE DEFAULTS` dashboard has no saved calibration for that profile and
 hardware ID.
 
+The **SO-ARM101 Leader Follower** template runs two `Robot` selectors with
+separate USB serial filters, driver run IDs, and `/leader` and `/follower` ROS
+topic prefixes. It releases only the leader, starts the follower controller in
+disarmed preview, and requires saved calibration for both physical devices.
+
 ## Contract
 
 The generic pipeline is:

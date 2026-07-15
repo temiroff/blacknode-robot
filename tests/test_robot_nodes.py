@@ -99,6 +99,7 @@ def test_usb_discovery_uses_pyserial_com_ports(monkeypatch):
     assert result["recommended"]["path"] == "COM7"
     assert result["recommended"]["vendor_id"] == "1a86"
     assert result["recommended"]["product_id"] == "7523"
+    assert result["usb"]["recommended"]["serial"] == "abc123"
     assert "COM7" in result["report"]
     assert "SO-ARM101 Servo Bus" in result["report"]
 
@@ -429,10 +430,17 @@ def test_visual_robot_definition_saves_and_loads_named_profile(monkeypatch, tmp_
     assert saved["saved"] is True
     assert (tmp_path / "robots" / "my_custom_arm" / "profile.json").exists()
 
-    loaded = _NODE_REGISTRY["RobotProfileLoad"]({"profile_id": "my_custom_arm"})
+    loaded = _NODE_REGISTRY["RobotProfileLoad"]({
+        "profile_id": "my_custom_arm",
+        "topic_prefix": "/leader",
+    })
     assert loaded["found"] is True
     assert loaded["profile"]["display_name"] == "My Custom Arm"
     assert len(loaded["driver"]["joints"]) == 2
+    assert loaded["driver"]["topic_prefix"] == "/leader"
+    assert loaded["driver"]["state_topic"] == "/leader/joint_states"
+    assert loaded["driver"]["command_topic"] == "/leader/joint_commands"
+    assert "--state-topic /leader/joint_states" in robot_nodes._driver_command(loaded["driver"], "COM7")
 
     listed = _NODE_REGISTRY["RobotProfileList"]({})
     assert {item["id"] for item in listed["profiles"]} == {"so_arm101", "my_custom_arm"}
@@ -673,6 +681,7 @@ def test_custom_robot_templates_validate():
         "editable-so-arm101-profile.json",
         "robot-guided-calibration.json",
         "so-arm101-motion-test.json",
+        "so-arm101-leader-follower.json",
     ):
         workflow = json.loads((templates / name).read_text(encoding="utf-8"))
         report = validate_workflow(workflow)
