@@ -44,6 +44,7 @@ _CATEGORY = "Robot"
 _SERIAL_GLOBS = ("/dev/serial/by-id/*", "/dev/ttyACM*", "/dev/ttyUSB*")
 _COMMON_SERIAL_GROUPS = {"dialout", "uucp", "plugdev", "tty"}
 _managed_drivers: dict[str, subprocess.Popen] = {}
+_managed_driver_commands: dict[str, str] = {}
 _last_driver_exits: dict[str, dict[str, Any]] = {}
 
 
@@ -409,6 +410,7 @@ def _driver_running(run_id: str) -> bool:
     if proc.poll() is None:
         return True
     _managed_drivers.pop(run_id, None)
+    _managed_driver_commands.pop(run_id, None)
     stderr = (proc.stderr.read() if proc.stderr else "").strip()
     _last_driver_exits[run_id] = {
         "run_id": run_id,
@@ -449,6 +451,7 @@ def _terminate_process(proc: subprocess.Popen) -> bool:
 
 def _stop_driver(run_id: str) -> int:
     proc = _managed_drivers.pop(run_id, None)
+    _managed_driver_commands.pop(run_id, None)
     if proc is None:
         return 0
     return 1 if _terminate_process(proc) else 0
@@ -462,6 +465,7 @@ def runtime_status() -> dict[str, Any]:
             live_runs.append({"run_id": run_id, "pid": proc.pid})
         else:
             _managed_drivers.pop(run_id, None)
+            _managed_driver_commands.pop(run_id, None)
     try:
         from .profiles import calibration_runtime_status
 
@@ -698,7 +702,8 @@ def robot_driver_launcher(ctx: dict) -> dict:
             "report": "robot driver start BLOCKED: no serial port available from USB discovery",
         }
 
-    if _driver_running(run_id):
+    restarted = False
+    if _driver_running(run_id) and _managed_driver_commands.get(run_id) == command:
         proc = _managed_drivers[run_id]
         return {
             "running": True,
@@ -707,6 +712,14 @@ def robot_driver_launcher(ctx: dict) -> dict:
             "command": command,
             "report": f"robot driver already running: {driver.get('name') or run_id} (pid {proc.pid})",
         }
+
+    if _driver_running(run_id):
+        # A profile change can alter joint ids, home ticks, limits, or the bus
+        # command. Never claim the new descriptor is active while retaining a
+        # process launched from the old command. An explicit Start/Run safely
+        # replaces it through the normal shutdown path.
+        _stop_driver(run_id)
+        restarted = True
 
     _stop_driver(run_id)
     _last_driver_exits.pop(run_id, None)
@@ -728,6 +741,7 @@ def robot_driver_launcher(ctx: dict) -> dict:
             "report": f"robot driver start FAILED: {exc}",
         }
     _managed_drivers[run_id] = proc
+    _managed_driver_commands[run_id] = command
 
     wait_seconds = max(0.0, float(ctx.get("wait_seconds") or 0.0))
     if wait_seconds > 0:
@@ -749,7 +763,7 @@ def robot_driver_launcher(ctx: dict) -> dict:
         "run_id": run_id,
         "driver": driver,
         "command": command,
-        "report": f"robot driver running: {driver.get('name') or run_id} (pid {proc.pid})",
+        "report": f"robot driver {'restarted with updated profile' if restarted else 'running'}: {driver.get('name') or run_id} (pid {proc.pid})",
     }
 
 
@@ -914,6 +928,7 @@ def _svg_data(svg: str) -> str:
     name="RobotConnectionDashboard",
     category=_CATEGORY,
     description="Render one clear USB, driver, ROS interface, and live-pose readiness screen for a robot demo.",
+    live=True,
     inputs={
         "robot": Dict,
         "connected": Bool(default=False),
@@ -938,6 +953,7 @@ def robot_connection_dashboard(ctx: dict) -> dict:
     recommended = dict(usb.get("recommended") or {})
     serial_port = str(recommended.get("path") or "not detected")
     driver_name = str(driver.get("name") or driver.get("id") or "not selected")
+    profile_id = str(driver.get("profile_id") or driver.get("id") or "not selected")
     transport = str((robot.get("interface") or {}).get("kind") or driver.get("transport") or "none")
     configured_joints = driver.get("joints") if isinstance(driver.get("joints"), list) else []
     joint_configs = {
@@ -984,6 +1000,7 @@ def robot_connection_dashboard(ctx: dict) -> dict:
         "live_pose": pose_ready,
         "serial_port": serial_port,
         "driver": driver_name,
+        "profile_id": profile_id,
         "transport": transport,
         "joint_count": len(joints),
         "pose": pose,
@@ -1036,14 +1053,15 @@ def robot_connection_dashboard(ctx: dict) -> dict:
 
     accent = "#22c55e" if ready else "#f59e0b"
     verdict = "READY TO ARM" if ready else "SAFE / NOT ARMED"
-    next_step = (
-        "Live state verified. Arm one motion node only after clearing the workspace."
+    next_step_lines = (
+        ("Live state verified.", "Clear workspace before arming.")
         if ready
-        else "Complete each readiness stage above. Motion remains blocked by default."
+        else ("Complete readiness stages.", "Motion remains blocked.")
     )
     calibration_color = "#22c55e" if calibrated else "#f59e0b"
     calibration_label = "SAVED CALIBRATION" if calibrated else "PROFILE DEFAULTS"
-    calibration_detail = "Hardware-specific limits and home" if calibrated else "Calibrate this robot for measured values"
+    calibration_detail_1 = "Hardware-specific limits" if calibrated else "No saved calibration file"
+    calibration_detail_2 = "and home are active" if calibrated else "Run calibration, then Save"
     svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="680" viewBox="0 0 1120 680">
 <rect width="1120" height="680" rx="28" fill="#0b1020"/>
 <rect x="24" y="24" width="1072" height="92" rx="18" fill="#172033" stroke="#14b8a6" stroke-width="2"/>
@@ -1063,14 +1081,17 @@ def robot_connection_dashboard(ctx: dict) -> dict:
 <rect x="780" y="316" width="304" height="328" rx="16" fill="#172033"/>
 <text x="808" y="346" fill="#93a4b8" font-family="Arial,sans-serif" font-size="13" font-weight="700">CALIBRATION</text>
 <rect x="808" y="362" width="248" height="38" rx="19" fill="{calibration_color}"/>
-<text x="932" y="387" text-anchor="middle" fill="#07111f" font-family="Arial,sans-serif" font-size="13" font-weight="900">{calibration_label}</text>
-<text x="808" y="428" fill="#cbd5e1" font-family="Arial,sans-serif" font-size="13">{_svg_text(calibration_detail, 39)}</text>
-<text x="808" y="458" fill="#93a4b8" font-family="monospace" font-size="12">device: {_svg_text(hardware_id, 28)}</text>
-<text x="808" y="504" fill="#93a4b8" font-family="Arial,sans-serif" font-size="13" font-weight="700">NEXT SAFE ACTION</text>
-<text x="808" y="536" fill="#f8fafc" font-family="Arial,sans-serif" font-size="14" font-weight="700">{_svg_text(next_step, 35)}</text>
-<text x="808" y="580" fill="#93a4b8" font-family="monospace" font-size="12">state: {_svg_text(robot.get('state_topic'), 27)}</text>
-<text x="808" y="606" fill="#93a4b8" font-family="monospace" font-size="12">command: {_svg_text(robot.get('command_topic'), 25)}</text>
-<text x="808" y="628" fill="{accent}" font-family="Arial,sans-serif" font-size="12" font-weight="700">Stop all uses safe shutdown.</text>
+<text x="932" y="387" text-anchor="middle" fill="#07111f" font-family="Arial,sans-serif" font-size="12" font-weight="900">{calibration_label}</text>
+<text x="808" y="426" fill="#cbd5e1" font-family="Arial,sans-serif" font-size="13">{calibration_detail_1}</text>
+<text x="808" y="447" fill="#cbd5e1" font-family="Arial,sans-serif" font-size="13">{calibration_detail_2}</text>
+<text x="808" y="476" fill="#93a4b8" font-family="monospace" font-size="12">profile: {_svg_text(profile_id, 25)}</text>
+<text x="808" y="497" fill="#93a4b8" font-family="monospace" font-size="12">device: {_svg_text(hardware_id, 26)}</text>
+<text x="808" y="532" fill="#93a4b8" font-family="Arial,sans-serif" font-size="13" font-weight="700">NEXT SAFE ACTION</text>
+<text x="808" y="557" fill="#f8fafc" font-family="Arial,sans-serif" font-size="13" font-weight="700">{next_step_lines[0]}</text>
+<text x="808" y="577" fill="#f8fafc" font-family="Arial,sans-serif" font-size="13" font-weight="700">{next_step_lines[1]}</text>
+<text x="808" y="598" fill="#93a4b8" font-family="monospace" font-size="12">state: {_svg_text(robot.get('state_topic'), 27)}</text>
+<text x="808" y="616" fill="#93a4b8" font-family="monospace" font-size="12">command: {_svg_text(robot.get('command_topic'), 25)}</text>
+<text x="808" y="636" fill="{accent}" font-family="Arial,sans-serif" font-size="12" font-weight="700">Stop all uses safe shutdown.</text>
 </svg>'''
     report = (
         f"robot connection dashboard {'READY' if ready else 'WAITING'}: "

@@ -42,6 +42,12 @@ driver.
 | `RobotDiscovery` | Runs the generic setup path and outputs a robot profile |
 | `RobotConnectionDashboard` | Shows USB, driver, ROS interface, live joint positions, home references, safe ranges, and calibration source on one demo screen |
 
+Changing the generic `Robot.profile_id` invalidates the old dashboard. Press
+**Run** to apply it: if its generated driver command differs, Blacknode safely
+stops the prior managed process before starting the selected profile. A
+`PROFILE DEFAULTS` dashboard has no saved calibration for that profile and
+hardware ID.
+
 ## Contract
 
 The generic pipeline is:
