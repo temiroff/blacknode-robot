@@ -32,6 +32,7 @@ driver.
 | `RobotDriverPreset` | Fills in a driver descriptor for a known, tested robot (currently: SO-ARM101) |
 | `RobotDriverLauncher` | Starts/stops a driver process from the descriptor |
 | `RobotDiscovery` | Runs the generic setup path and outputs a robot profile |
+| `RobotConnectionDashboard` | Shows USB, driver, ROS interface, and live joint-state readiness on one demo screen |
 
 ## Contract
 
@@ -80,10 +81,10 @@ already generic.
 Drives a real [SO-ARM101](https://github.com/TheRobotStudio/SO-ARM100) —
 6x Feetech STS3215 serial-bus servos (`shoulder_pan`, `shoulder_lift`,
 `elbow_flex`, `wrist_flex`, `wrist_roll`, `gripper`; servo IDs 1-6; 1 Mbps)
-— through `drivers/feetech_bus_driver.py`. The preset defaults to native
-`rclpy` for Linux; set `transport=rosbridge` for Windows. In rosbridge mode the
-same driver publishes state and receives commands through `roslibpy`, while the
-serial connection remains local to Windows.
+— through `drivers/feetech_bus_driver.py`. The preset defaults to
+`transport=auto`: it uses native `rclpy` when available and otherwise uses
+rosbridge. The transport can still be forced for advanced deployments. In
+rosbridge mode the serial connection remains local to the driver machine.
 
 ```bash
 pip install -r packages/blacknode-robot/requirements.txt   # servo SDK + roslibpy
@@ -95,15 +96,32 @@ pip install -r packages/blacknode-robot/requirements.txt   # servo SDK + roslibp
 2. Load the **SO-ARM101 Motion Test** template
    (`templates/so-arm101-motion-test.json`): `RobotDriverPreset` (preset
    `so_arm101`) → `RobotDiscovery` (starts the driver process) →
-   `ROS2NativeStatus` → `ROS2NativeJointState` → `ROS2NativeSetJoint`
+   `ROS2Status` → `ROS2JointState` → `ROS2SetJoint`
    (`armed=false` by default) → `ROS2MotionDashboard`.
 3. Press **Run**. With `armed=false` this only proves the pipeline: the
-   driver starts, `ROS2NativeStatus` reports ready, and
-   `ROS2NativeJointState` shows the arm's live pose. **The arm must not move
+   driver starts, `ROS2Status` selects native ROS 2 or rosbridge, and
+   `ROS2JointState` shows the arm's live pose. **The arm must not move
    or twitch during this step** — see Safety below for why.
-4. Set a `joint` name and `armed=true` on `ROS2NativeSetJoint`, recook. It
+4. Set a `joint` name and `armed=true` on `ROS2SetJoint`, recook. It
    syncs to the current pose, ramps to the target, and the dashboard shows
    before/after.
+
+### Manual Move + Live Pose
+
+The motion-test template includes `ROS2ManualMove` between connection status and
+motion. Its safe default is `action=check`, which changes no torque state and
+starts an explicitly labeled live pose monitor.
+
+- Set `action=release` and run once to disable servo torque while the driver keeps
+  publishing joint positions. Support the arm before entering; it may go limp.
+- Move the supported arm by hand. The Teach node's unconnected dashboard output
+  refreshes from the runtime monitor and shows the latest pose.
+- Set `action=hold` and run once to hold again. The driver reads every servo and
+  writes those exact positions as goals before enabling torque. Motion is
+  blocked during the release/hold run; set `action=check` before commanding a
+  joint.
+- **Stop all** remains the emergency-safe shutdown: it stops the driver and
+  disables torque, so live state publishing also stops.
 
 ### Safety
 
