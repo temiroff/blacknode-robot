@@ -462,7 +462,7 @@
       "to_port": "trigger"
     },
     {
-      "from": "live",
+      "from": "manual_move",
       "from_port": "pose",
       "to": "connection",
       "to_port": "pose"
@@ -492,7 +492,7 @@
       "to_port": "status_report"
     },
     {
-      "from": "connection",
+      "from": "live",
       "from_port": "report",
       "to": "manual_move",
       "to_port": "trigger"

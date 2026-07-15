@@ -163,6 +163,37 @@ def test_driver_launcher_start_check_stop():
         assert stopped["running"] is False
 
 
+def test_driver_launcher_restarts_when_profile_command_changes():
+    run_id = "test_robot_profile_restart"
+    first = _NODE_REGISTRY["RobotDriverDescriptor"]({
+        "name": "First profile",
+        "command_template": f'{sys.executable} -c "import time; time.sleep(30)"',
+    })["driver"]
+    second = _NODE_REGISTRY["RobotDriverDescriptor"]({
+        "name": "Second profile",
+        "command_template": f'{sys.executable} -c "import time; time.sleep(31)"',
+    })["driver"]
+    try:
+        started = _NODE_REGISTRY["RobotDriverLauncher"]({
+            "action": "start", "run_id": run_id, "driver": first,
+        })
+        first_pid = robot_nodes._managed_drivers[run_id].pid
+
+        restarted = _NODE_REGISTRY["RobotDriverLauncher"]({
+            "action": "start", "run_id": run_id, "driver": second,
+        })
+
+        assert started["running"] is True
+        assert restarted["running"] is True
+        assert robot_nodes._managed_drivers[run_id].pid != first_pid
+        assert robot_nodes._managed_driver_commands[run_id] == restarted["command"]
+        assert "restarted with updated profile" in restarted["report"]
+    finally:
+        _NODE_REGISTRY["RobotDriverLauncher"]({
+            "action": "stop", "run_id": run_id, "driver": second,
+        })
+
+
 def test_driver_launcher_preserves_late_exit_error():
     run_id = "test_late_driver_exit"
     proc = SimpleNamespace(
@@ -355,8 +386,11 @@ def test_connection_dashboard_labels_uncalibrated_profile_defaults():
 
     assert result["summary"]["calibrated"] is False
     assert result["summary"]["calibration_status"] == "profile defaults"
+    assert result["summary"]["profile_id"] == "not selected"
     svg = base64.b64decode(result["dashboard"].split(",", 1)[1]).decode("utf-8")
     assert "PROFILE DEFAULTS" in svg
+    assert "No saved calibration file" in svg
+    assert "Run calibration, then Save" in svg
     assert "0.00° · 2048t" in svg
     assert "-90.00° .. 90.00°" in svg
 
