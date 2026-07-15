@@ -616,25 +616,29 @@ def _sample_session(session: dict[str, Any], pose: dict[str, Any]) -> int:
 
 def _calibration_dashboard(session: dict[str, Any] | None, report: str) -> str:
     active = bool(session and session.get("active"))
-    accent = "#f59e0b" if active else "#22c55e"
+    paused = bool(session and session.get("paused"))
+    accent = "#f59e0b" if active else "#60a5fa" if paused else "#22c55e"
     rows = []
     observed = dict(session.get("observed") or {}) if session else {}
     home = dict(session.get("home") or {}) if session else {}
+    current = dict(session.get("last_pose") or {}) if session else {}
     for index, name in enumerate(sorted(observed)[:8]):
         bounds = observed[name]
         y = 178 + index * 44
         rows.append(
             f'<text x="46" y="{y}" fill="#f8fafc" font-family="monospace" font-size="15">{html.escape(name)}</text>'
-            f'<text x="410" y="{y}" text-anchor="end" fill="#93a4b8" font-family="monospace" font-size="15">{float(bounds["min_deg"]):.2f} .. {float(bounds["max_deg"]):.2f}</text>'
-            f'<text x="620" y="{y}" text-anchor="end" fill="{accent}" font-family="monospace" font-size="15">{float(home[name]):.2f}</text>'
+            f'<text x="270" y="{y}" text-anchor="end" fill="#f8fafc" font-family="monospace" font-size="15">{float(current.get(name, 0.0)):.2f}</text>'
+            f'<text x="500" y="{y}" text-anchor="end" fill="#93a4b8" font-family="monospace" font-size="15">{float(bounds["min_deg"]):.2f} .. {float(bounds["max_deg"]):.2f}</text>'
+            f'<text x="640" y="{y}" text-anchor="end" fill="{accent}" font-family="monospace" font-size="15">{float(home[name]):.2f}</text>'
             if name in home else
             f'<text x="46" y="{y}" fill="#f8fafc" font-family="monospace" font-size="15">{html.escape(name)}</text>'
-            f'<text x="410" y="{y}" text-anchor="end" fill="#93a4b8" font-family="monospace" font-size="15">{float(bounds["min_deg"]):.2f} .. {float(bounds["max_deg"]):.2f}</text>'
-            f'<text x="620" y="{y}" text-anchor="end" fill="#64748b" font-family="monospace" font-size="15">-</text>'
+            f'<text x="270" y="{y}" text-anchor="end" fill="#f8fafc" font-family="monospace" font-size="15">{float(current.get(name, 0.0)):.2f}</text>'
+            f'<text x="500" y="{y}" text-anchor="end" fill="#93a4b8" font-family="monospace" font-size="15">{float(bounds["min_deg"]):.2f} .. {float(bounds["max_deg"]):.2f}</text>'
+            f'<text x="640" y="{y}" text-anchor="end" fill="#64748b" font-family="monospace" font-size="15">-</text>'
         )
     if not rows:
         rows.append('<text x="340" y="250" text-anchor="middle" fill="#93a4b8" font-family="Arial" font-size="17">Start recording, then move each released joint slowly.</text>')
-    state = "RECORDING" if active else "IDLE / SAVED"
+    state = "RECORDING" if active else "PAUSED" if paused else "IDLE / SAVED"
     samples = int(session.get("samples") or 0) if session else 0
     safe_report = html.escape(report[:100])
     svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="680" height="590" viewBox="0 0 680 590">
@@ -643,8 +647,9 @@ def _calibration_dashboard(session: dict[str, Any] | None, report: str) -> str:
 <text x="44" y="58" fill="#f8fafc" font-family="Arial" font-size="23" font-weight="800">ROBOT CALIBRATION</text>
 <text x="44" y="91" fill="{accent}" font-family="Arial" font-size="16" font-weight="800">{state} · {samples} SAMPLES</text>
 <text x="46" y="146" fill="#93a4b8" font-family="Arial" font-size="12">JOINT</text>
-<text x="410" y="146" text-anchor="end" fill="#93a4b8" font-family="Arial" font-size="12">OBSERVED RANGE</text>
-<text x="620" y="146" text-anchor="end" fill="#93a4b8" font-family="Arial" font-size="12">HOME</text>
+<text x="270" y="146" text-anchor="end" fill="#93a4b8" font-family="Arial" font-size="12">CURRENT</text>
+<text x="500" y="146" text-anchor="end" fill="#93a4b8" font-family="Arial" font-size="12">OBSERVED RANGE</text>
+<text x="640" y="146" text-anchor="end" fill="#93a4b8" font-family="Arial" font-size="12">HOME</text>
 {''.join(rows)}
 <text x="40" y="552" fill="#93a4b8" font-family="Arial" font-size="13">{safe_report}</text>
 </svg>'''
@@ -655,17 +660,24 @@ def _session_outputs(session: dict[str, Any] | None, report: str, *, saved: bool
     profile = copy.deepcopy(session.get("effective_profile") or session.get("profile") or {}) if session else {}
     calibration = copy.deepcopy(session.get("calibration") or {}) if session else {}
     hardware_id = str(session.get("hardware_id") or "") if session else ""
+    active = bool(session and session.get("active"))
+    paused = bool(session and session.get("paused"))
+    state = "recording" if active else "paused" if paused else "saved" if calibration else "idle"
+    saved_path = path or (str(session.get("path") or "") if session else "")
     return {
-        "active": bool(session and session.get("active")),
+        "live": bool(session and session.get("monitoring")),
+        "state": state,
+        "active": active,
         "data_ready": bool(session and session.get("observed")),
         "samples": int(session.get("samples") or 0) if session else 0,
+        "pose": copy.deepcopy(session.get("last_pose") or {}) if session else {},
         "observed": copy.deepcopy(session.get("observed") or {}) if session else {},
         "home": copy.deepcopy(session.get("home") or {}) if session else {},
         "calibration": calibration,
         "profile": profile,
         "driver": _driver_from_profile(profile, hardware_id) if profile else {},
-        "saved": saved,
-        "path": path,
+        "saved": saved or bool(calibration),
+        "path": saved_path,
         "dashboard": _calibration_dashboard(session, report),
         "report": report,
     }
@@ -677,7 +689,7 @@ def _session_outputs(session: dict[str, Any] | None, report: str, *, saved: bool
     live=True,
     description="Record released-joint extrema and home pose, review a safety margin, and save calibration per physical robot.",
     inputs={
-        "action": Enum(["check", "start", "capture_home", "finish", "cancel"], default="check"),
+        "action": Enum(["check", "start", "pause", "capture_home", "finish", "cancel"], default="check"),
         "run_id": Text(default="robot_calibration"),
         "profile": Dict,
         "hardware_id": Text(default=""),
@@ -688,9 +700,12 @@ def _session_outputs(session: dict[str, Any] | None, report: str, *, saved: bool
         "safety_margin_deg": Float(default=3.0),
     },
     outputs={
+        "live": Bool,
+        "state": Text,
         "active": Bool,
         "data_ready": Bool,
         "samples": Int,
+        "pose": Dict,
         "observed": Dict,
         "home": Dict,
         "calibration": Dict,
@@ -720,6 +735,18 @@ def robot_calibration_recorder(ctx: dict) -> dict:
                 return _session_outputs(None, "calibration blocked: connect hardware or set hardware_id so results belong to one physical robot")
             if require_released and torque_enabled:
                 return _session_outputs(None, "calibration blocked: torque is on. Support the arm and use Release + live pose first.")
+            if (
+                session is not None
+                and session.get("paused")
+                and not session.get("calibration")
+                and str(session.get("hardware_id")) == hardware_id
+                and str(session.get("profile", {}).get("id")) == str(profile.get("id"))
+            ):
+                session["active"] = True
+                session["paused"] = False
+                session["margin"] = max(0.0, float(ctx.get("safety_margin_deg") or session.get("margin") or 0.0))
+                _sample_session(session, pose)
+                return _session_outputs(session, "RECORDING RESUMED: continue moving each released joint through its intended usable range.")
             session = {
                 "run_id": run_id,
                 "profile": profile,
@@ -728,6 +755,8 @@ def robot_calibration_recorder(ctx: dict) -> dict:
                 "home": {},
                 "samples": 0,
                 "active": True,
+                "paused": False,
+                "monitoring": True,
                 "margin": max(0.0, float(ctx.get("safety_margin_deg") or 0.0)),
                 "started_at": time.time(),
                 "updated_at": time.time(),
@@ -740,10 +769,23 @@ def robot_calibration_recorder(ctx: dict) -> dict:
         if action in {"_sample", "sample"}:
             if require_released and torque_enabled:
                 session["active"] = False
+                session["paused"] = True
                 return _session_outputs(session, "calibration paused: torque became enabled; release it before recording more samples")
             if session.get("active"):
                 _sample_session(session, pose)
-            return _session_outputs(session, "RECORDING: move every released joint slowly; capture Home when the robot is in its neutral pose.")
+                return _session_outputs(session, "RECORDING: live ranges are updating; capture Home when the robot is in its neutral pose.")
+            allowed = {str(joint.get("id")) for joint in _joint_list(session["profile"])}
+            current = {str(name): float(value) for name, value in pose.items() if name in allowed and isinstance(value, (int, float))}
+            if current:
+                session["last_pose"] = current
+                session["updated_at"] = time.time()
+            if session.get("calibration"):
+                return _session_outputs(session, "SAVED: calibration is stored; current pose remains live until the graph stops.")
+            return _session_outputs(session, "PAUSED: live pose is still visible, but range samples are not being recorded.")
+        if action == "pause":
+            session["active"] = False
+            session["paused"] = True
+            return _session_outputs(session, "PAUSED: recording stopped without discarding samples. Press Resume recording or save when ready.")
         if action == "capture_home":
             if require_released and torque_enabled:
                 return _session_outputs(session, "home not captured: torque is on")
@@ -753,6 +795,8 @@ def robot_calibration_recorder(ctx: dict) -> dict:
             return _session_outputs(session, f"captured neutral Home for {len(session['home'])} joint(s); continue sweeping or press Save calibration")
         if action == "cancel":
             session["active"] = False
+            session["paused"] = False
+            session["monitoring"] = False
             _calibration_sessions.pop(run_id, None)
             return _session_outputs(session, "calibration cancelled; no files were changed")
         if action == "finish":
@@ -811,9 +855,17 @@ def robot_calibration_recorder(ctx: dict) -> dict:
             _write_json(path, calibration)
             session["calibration"] = calibration
             session["effective_profile"] = _apply_calibration(profile, calibration)
+            session["path"] = str(path)
             session["active"] = False
+            session["paused"] = False
             return _session_outputs(session, f"saved calibration for {session['hardware_id']}\n{path}", saved=True, path=str(path))
-        return _session_outputs(session, "calibration recording is active" if session.get("active") else "calibration recording is complete")
+        if session.get("active"):
+            report = "calibration recording is active and receiving live joint samples"
+        elif session.get("paused"):
+            report = "calibration recording is paused; live pose remains connected"
+        else:
+            report = "calibration recording is complete"
+        return _session_outputs(session, report)
 
 
 def calibration_runtime_status() -> dict[str, Any]:
@@ -822,7 +874,9 @@ def calibration_runtime_status() -> dict[str, Any]:
             {
                 "run_id": run_id,
                 "kind": "robot_calibration",
-                "active": bool(session.get("active")),
+                "active": bool(session.get("monitoring")),
+                "recording": bool(session.get("active")),
+                "state": "recording" if session.get("active") else "paused" if session.get("paused") else "saved" if session.get("calibration") else "idle",
                 "samples": int(session.get("samples") or 0),
                 "hardware_id": str(session.get("hardware_id") or ""),
                 "profile_id": str(session.get("profile", {}).get("id") or ""),

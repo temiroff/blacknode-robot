@@ -418,6 +418,8 @@ def test_calibration_records_extrema_home_margin_and_device_file(monkeypatch, tm
         "safety_margin_deg": 2.0,
     })
     assert started["active"] is True
+    assert started["live"] is True
+    assert started["state"] == "recording"
 
     for pose in (
         {"shoulder_pan": -20.0, "shoulder_lift": -30.0},
@@ -440,6 +442,18 @@ def test_calibration_records_extrema_home_margin_and_device_file(monkeypatch, tm
     finished = _NODE_REGISTRY["RobotCalibrationRecorder"]({"action": "finish", "run_id": run_id})
     assert finished["saved"] is True
     assert finished["active"] is False
+    assert finished["live"] is True
+    assert finished["state"] == "saved"
+    after_save = _NODE_REGISTRY["RobotCalibrationRecorder"]({
+        "action": "_sample",
+        "run_id": run_id,
+        "pose": {"shoulder_pan": 6.0, "shoulder_lift": 11.0},
+        "torque_enabled": False,
+    })
+    assert after_save["state"] == "saved"
+    assert after_save["saved"] is True
+    assert after_save["path"] == finished["path"]
+    assert after_save["pose"] == {"shoulder_pan": 6.0, "shoulder_lift": 11.0}
     path = tmp_path / "robots" / "calibration_arm" / "calibrations" / "usb_abc_123.json"
     assert path.exists()
     shoulder = finished["calibration"]["joints"]["shoulder_pan"]
@@ -471,6 +485,48 @@ def test_calibration_refuses_to_record_with_torque_enabled(monkeypatch, tmp_path
 
     assert result["active"] is False
     assert "torque is on" in result["report"]
+
+
+def test_calibration_pause_resume_preserves_samples_and_live_pose(monkeypatch, tmp_path):
+    monkeypatch.setenv("BLACKNODE_ROBOTS_DIR", str(tmp_path / "robots"))
+    profile_nodes.stop_calibration_services()
+    profile = profile_nodes.builtin_profile("so_arm101")
+    profile["joints"] = profile["joints"][:1]
+    run_id = "pause_resume_calibration"
+
+    started = _NODE_REGISTRY["RobotCalibrationRecorder"]({
+        "action": "start",
+        "run_id": run_id,
+        "profile": profile,
+        "hardware_id": "PAUSE-1",
+        "pose": {"shoulder_pan": 1.0},
+        "torque_enabled": False,
+    })
+    paused = _NODE_REGISTRY["RobotCalibrationRecorder"]({"action": "pause", "run_id": run_id})
+    assert paused["state"] == "paused"
+    assert paused["live"] is True
+    paused_samples = paused["samples"]
+
+    while_paused = _NODE_REGISTRY["RobotCalibrationRecorder"]({
+        "action": "_sample",
+        "run_id": run_id,
+        "pose": {"shoulder_pan": 9.0},
+        "torque_enabled": False,
+    })
+    assert while_paused["samples"] == paused_samples
+    assert while_paused["pose"] == {"shoulder_pan": 9.0}
+
+    resumed = _NODE_REGISTRY["RobotCalibrationRecorder"]({
+        "action": "start",
+        "run_id": run_id,
+        "profile": profile,
+        "hardware_id": "PAUSE-1",
+        "pose": {"shoulder_pan": 9.0},
+        "torque_enabled": False,
+    })
+    assert resumed["state"] == "recording"
+    assert resumed["samples"] == paused_samples + 1
+    assert resumed["pose"] == {"shoulder_pan": 9.0}
 
 
 def test_custom_robot_templates_validate():
