@@ -287,6 +287,80 @@ def test_connection_dashboard_stays_safe_until_live_pose_arrives():
     assert "WAITING" in result["report"]
 
 
+def test_connection_dashboard_shows_calibrated_home_and_safe_limits():
+    result = _NODE_REGISTRY["RobotConnectionDashboard"]({
+        "robot": {
+            "state_topic": "/joint_states",
+            "command_topic": "/joint_commands",
+            "usb": {
+                "ready": True,
+                "recommended": {"path": "COM7", "serial_number": "SERIAL-42"},
+            },
+            "driver": {
+                "running": True,
+                "name": "SO-ARM101",
+                "hardware_id": "SERIAL-42",
+                "calibration_path": "robots/so_arm101/calibrations/serial-42.json",
+                "profile": {"calibration": {"hardware_id": "SERIAL-42"}},
+                "joints": [{
+                    "id": "shoulder_pan",
+                    "home_ticks": 2200,
+                    "home_offset_deg": 13.36,
+                    "safe_min_deg": -82.4,
+                    "safe_max_deg": 91.6,
+                }],
+            },
+            "interface": {"kind": "rosbridge"},
+        },
+        "connected": True,
+        "interface_ready": True,
+        "pose": {"shoulder_pan": 12.5},
+    })
+
+    detail = result["summary"]["joints"][0]
+    assert result["summary"]["calibrated"] is True
+    assert result["summary"]["calibration_status"] == "saved calibration"
+    assert result["summary"]["hardware_id"] == "SERIAL-42"
+    assert detail["home_deg"] == 0.0
+    assert detail["home_ticks"] == 2200
+    assert detail["safe_min_deg"] == -82.4
+    assert detail["safe_max_deg"] == 91.6
+
+    svg = base64.b64decode(result["dashboard"].split(",", 1)[1]).decode("utf-8")
+    assert "SAVED CALIBRATION" in svg
+    assert "shoulder_pan" in svg
+    assert "0.00° · 2200t" in svg
+    assert "-82.40° .. 91.60°" in svg
+
+
+def test_connection_dashboard_labels_uncalibrated_profile_defaults():
+    result = _NODE_REGISTRY["RobotConnectionDashboard"]({
+        "robot": {
+            "usb": {"ready": True, "recommended": {"path": "COM3"}},
+            "driver": {
+                "running": True,
+                "name": "Custom arm",
+                "joints": [{
+                    "id": "joint_1",
+                    "home_ticks": 2048,
+                    "safe_min_deg": -90.0,
+                    "safe_max_deg": 90.0,
+                }],
+            },
+        },
+        "connected": True,
+        "interface_ready": True,
+        "pose": {"joint_1": 5.0},
+    })
+
+    assert result["summary"]["calibrated"] is False
+    assert result["summary"]["calibration_status"] == "profile defaults"
+    svg = base64.b64decode(result["dashboard"].split(",", 1)[1]).decode("utf-8")
+    assert "PROFILE DEFAULTS" in svg
+    assert "0.00° · 2048t" in svg
+    assert "-90.00° .. 90.00°" in svg
+
+
 def test_visual_robot_definition_saves_and_loads_named_profile(monkeypatch, tmp_path):
     monkeypatch.setenv("BLACKNODE_ROBOTS_DIR", str(tmp_path / "robots"))
     shoulder = _NODE_REGISTRY["RobotJointDefinition"]({
