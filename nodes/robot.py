@@ -525,7 +525,7 @@ def stop_runtime_services() -> dict[str, Any]:
         "match_product_id": Text(default=""),
         "probe_open": Bool(default=False),
     },
-    outputs={"found": Bool, "ready": Bool, "devices": List, "recommended": Dict, "permissions": Dict, "report": Text},
+    outputs={"found": Bool, "ready": Bool, "devices": List, "recommended": Dict, "usb": Dict, "permissions": Dict, "report": Text},
 )
 def robot_usb_discovery(ctx: dict) -> dict:
     text_filter = str(ctx.get("port_filter") or "").strip()
@@ -584,11 +584,20 @@ def robot_usb_discovery(ctx: dict) -> dict:
             for fix in fixes[:6]:
                 lines.append("FIX: " + fix)
 
+    usb = {
+        "found": found,
+        "ready": ready,
+        "devices": devices,
+        "recommended": recommended,
+        "permissions": permissions,
+        "report": "\n".join(lines),
+    }
     return {
         "found": found,
         "ready": ready,
         "devices": devices,
         "recommended": recommended,
+        "usb": usb,
         "permissions": permissions,
         "report": "\n".join(lines),
     }
@@ -774,6 +783,7 @@ def robot_driver_launcher(ctx: dict) -> dict:
     inputs={
         "trigger": AnyPort,
         "driver": Dict,
+        "usb": Dict,
         "action": Enum(["check", "start", "stop"], default="check"),
         "run_id": Text(default="robot_driver"),
         "port_filter": Text(default=""),
@@ -802,7 +812,8 @@ def robot_driver_launcher(ctx: dict) -> dict:
 def robot_discovery(ctx: dict) -> dict:
     driver = _driver_from_ctx(ctx)
     match = driver.get("match") if isinstance(driver.get("match"), dict) else {}
-    usb = robot_usb_discovery({
+    supplied_usb = ctx.get("usb") if isinstance(ctx.get("usb"), dict) else {}
+    usb = supplied_usb or robot_usb_discovery({
         "port_filter": ctx.get("port_filter", ""),
         "match_vendor_id": match.get("vendor_id", ""),
         "match_product_id": match.get("product_id", ""),

@@ -1,0 +1,126 @@
+{
+  "kind": "blacknode.workflow",
+  "schema_version": 1,
+  "name": "SO-ARM101 Leader Follower",
+  "saved_at": "2026-07-15T00:00:00",
+  "entrypoint": {"node_id": "out", "port": "value"},
+  "metadata": {
+    "template": true,
+    "description": "Directly control a calibrated follower arm by moving a separate torque-released leader arm. Uses distinct USB identities, driver run IDs, and ROS topic namespaces; starts in disarmed preview mode.",
+    "color": "#14b8a6",
+    "required_packages": ["blacknode-robot", "blacknode-ros2"]
+  },
+  "node_meta": {
+    "leader_usb": {
+      "id": "leader_usb", "type": "RobotUSBDiscovery", "pos": [40, 80],
+      "params": {"port_filter": "SET_LEADER_USB_SERIAL", "match_vendor_id": "", "match_product_id": "", "probe_open": false},
+      "inputs": ["refresh", "port_filter", "match_vendor_id", "match_product_id", "probe_open"],
+      "outputs": ["found", "ready", "devices", "recommended", "usb", "permissions", "report"],
+      "input_types": {"refresh": "Any", "port_filter": "Text", "match_vendor_id": "Text", "match_product_id": "Text", "probe_open": "Bool"},
+      "output_types": {"found": "Bool", "ready": "Bool", "devices": "List", "recommended": "Dict", "usb": "Dict", "permissions": "Dict", "report": "Text"},
+      "input_defaults": {"port_filter": "SET_LEADER_USB_SERIAL", "match_vendor_id": "", "match_product_id": "", "probe_open": false}
+    },
+    "follower_usb": {
+      "id": "follower_usb", "type": "RobotUSBDiscovery", "pos": [40, 500],
+      "params": {"port_filter": "SET_FOLLOWER_USB_SERIAL", "match_vendor_id": "", "match_product_id": "", "probe_open": false},
+      "inputs": ["refresh", "port_filter", "match_vendor_id", "match_product_id", "probe_open"],
+      "outputs": ["found", "ready", "devices", "recommended", "usb", "permissions", "report"],
+      "input_types": {"refresh": "Any", "port_filter": "Text", "match_vendor_id": "Text", "match_product_id": "Text", "probe_open": "Bool"},
+      "output_types": {"found": "Bool", "ready": "Bool", "devices": "List", "recommended": "Dict", "usb": "Dict", "permissions": "Dict", "report": "Text"},
+      "input_defaults": {"port_filter": "SET_FOLLOWER_USB_SERIAL", "match_vendor_id": "", "match_product_id": "", "probe_open": false}
+    },
+    "rosbridge": {
+      "id": "rosbridge", "type": "ROS2Status", "pos": [420, 40],
+      "params": {"transport": "rosbridge", "ensure_rosbridge": true, "host": "127.0.0.1", "port": 9090, "state_topic": "/leader/joint_states", "command_topic": "/follower/joint_commands", "config_topic": "/follower/joint_config", "timeout": 5.0},
+      "inputs": ["trigger", "transport", "ensure_rosbridge", "host", "port", "state_topic", "command_topic", "config_topic", "timeout"],
+      "outputs": ["connected", "ready", "transport", "topics", "config", "report"],
+      "input_types": {"trigger": "Any", "transport": "Text", "ensure_rosbridge": "Bool", "host": "Text", "port": "Int", "state_topic": "Text", "command_topic": "Text", "config_topic": "Text", "timeout": "Float"},
+      "output_types": {"connected": "Bool", "ready": "Bool", "transport": "Text", "topics": "List", "config": "Dict", "report": "Text"},
+      "input_defaults": {"transport": "rosbridge", "ensure_rosbridge": true, "host": "127.0.0.1", "port": 9090, "state_topic": "/leader/joint_states", "command_topic": "/follower/joint_commands", "config_topic": "/follower/joint_config", "timeout": 5.0},
+      "input_choices": {"transport": ["auto", "native", "rosbridge"]}
+    },
+    "leader_profile": {
+      "id": "leader_profile", "type": "Robot", "pos": [420, 200],
+      "params": {"profile_id": "so_arm101", "topic_prefix": "/leader"},
+      "inputs": ["profile_id", "hardware", "topic_prefix"],
+      "outputs": ["found", "profile", "driver", "calibration", "path", "report"],
+      "input_types": {"profile_id": "Text", "hardware": "Dict", "topic_prefix": "Text"},
+      "output_types": {"found": "Bool", "profile": "Dict", "driver": "Dict", "calibration": "Dict", "path": "Text", "report": "Text"},
+      "input_defaults": {"profile_id": "so_arm101", "topic_prefix": "/leader"},
+      "input_choices": {"profile_id": ["so_arm101"]}
+    },
+    "follower_profile": {
+      "id": "follower_profile", "type": "Robot", "pos": [420, 620],
+      "params": {"profile_id": "so_arm101", "topic_prefix": "/follower"},
+      "inputs": ["profile_id", "hardware", "topic_prefix"],
+      "outputs": ["found", "profile", "driver", "calibration", "path", "report"],
+      "input_types": {"profile_id": "Text", "hardware": "Dict", "topic_prefix": "Text"},
+      "output_types": {"found": "Bool", "profile": "Dict", "driver": "Dict", "calibration": "Dict", "path": "Text", "report": "Text"},
+      "input_defaults": {"profile_id": "so_arm101", "topic_prefix": "/follower"},
+      "input_choices": {"profile_id": ["so_arm101"]}
+    },
+    "leader_driver": {
+      "id": "leader_driver", "type": "RobotDiscovery", "pos": [820, 200],
+      "params": {"action": "start", "run_id": "leader_arm_driver", "require_usb": true, "probe_open": false, "serial_port": "", "host": "127.0.0.1", "port": 9090, "state_topic": "/leader/joint_states", "command_topic": "/leader/joint_commands", "config_topic": "/leader/joint_config", "control_topic": "/leader/robot_control", "units": "degrees"},
+      "inputs": ["trigger", "driver", "usb", "action", "run_id", "port_filter", "probe_open", "require_usb", "serial_port", "host", "port", "state_topic", "command_topic", "config_topic", "control_topic", "units"],
+      "outputs": ["found", "ready", "usb_ready", "driver_running", "usb", "driver", "robot", "report"],
+      "input_types": {"trigger": "Any", "driver": "Dict", "usb": "Dict", "action": "Text", "run_id": "Text", "port_filter": "Text", "probe_open": "Bool", "require_usb": "Bool", "serial_port": "Text", "host": "Text", "port": "Int", "state_topic": "Text", "command_topic": "Text", "config_topic": "Text", "control_topic": "Text", "units": "Text"},
+      "output_types": {"found": "Bool", "ready": "Bool", "usb_ready": "Bool", "driver_running": "Bool", "usb": "Dict", "driver": "Dict", "robot": "Dict", "report": "Text"},
+      "input_defaults": {"action": "start", "run_id": "leader_arm_driver", "port_filter": "", "probe_open": false, "require_usb": true, "serial_port": "", "host": "127.0.0.1", "port": 9090, "state_topic": "/leader/joint_states", "command_topic": "/leader/joint_commands", "config_topic": "/leader/joint_config", "control_topic": "/leader/robot_control", "units": "degrees"},
+      "input_choices": {"action": ["check", "start", "stop"], "units": ["radians", "degrees"]}
+    },
+    "follower_driver": {
+      "id": "follower_driver", "type": "RobotDiscovery", "pos": [820, 620],
+      "params": {"action": "start", "run_id": "follower_arm_driver", "require_usb": true, "probe_open": false, "serial_port": "", "host": "127.0.0.1", "port": 9090, "state_topic": "/follower/joint_states", "command_topic": "/follower/joint_commands", "config_topic": "/follower/joint_config", "control_topic": "/follower/robot_control", "units": "degrees"},
+      "inputs": ["trigger", "driver", "usb", "action", "run_id", "port_filter", "probe_open", "require_usb", "serial_port", "host", "port", "state_topic", "command_topic", "config_topic", "control_topic", "units"],
+      "outputs": ["found", "ready", "usb_ready", "driver_running", "usb", "driver", "robot", "report"],
+      "input_types": {"trigger": "Any", "driver": "Dict", "usb": "Dict", "action": "Text", "run_id": "Text", "port_filter": "Text", "probe_open": "Bool", "require_usb": "Bool", "serial_port": "Text", "host": "Text", "port": "Int", "state_topic": "Text", "command_topic": "Text", "config_topic": "Text", "control_topic": "Text", "units": "Text"},
+      "output_types": {"found": "Bool", "ready": "Bool", "usb_ready": "Bool", "driver_running": "Bool", "usb": "Dict", "driver": "Dict", "robot": "Dict", "report": "Text"},
+      "input_defaults": {"action": "start", "run_id": "follower_arm_driver", "port_filter": "", "probe_open": false, "require_usb": true, "serial_port": "", "host": "127.0.0.1", "port": 9090, "state_topic": "/follower/joint_states", "command_topic": "/follower/joint_commands", "config_topic": "/follower/joint_config", "control_topic": "/follower/robot_control", "units": "degrees"},
+      "input_choices": {"action": ["check", "start", "stop"], "units": ["radians", "degrees"]}
+    },
+    "leader_release": {
+      "id": "leader_release", "type": "ROS2ManualMove", "pos": [1220, 200],
+      "params": {"run_id": "leader_pose_stream", "action": "release", "transport": "rosbridge", "host": "127.0.0.1", "port": 9090, "state_topic": "/leader/joint_states", "config_topic": "/leader/joint_config", "control_topic": "/leader/robot_control", "units": "degrees", "timeout": 5.0},
+      "inputs": ["trigger", "run_id", "action", "transport", "robot", "host", "port", "state_topic", "config_topic", "control_topic", "units", "timeout"],
+      "outputs": ["action", "live", "data_ready", "mode", "torque_enabled", "pose", "joints", "updated_at", "dashboard", "report"],
+      "input_types": {"trigger": "Any", "run_id": "Text", "action": "Text", "transport": "Text", "robot": "Dict", "host": "Text", "port": "Int", "state_topic": "Text", "config_topic": "Text", "control_topic": "Text", "units": "Text", "timeout": "Float"},
+      "output_types": {"action": "Text", "live": "Bool", "data_ready": "Bool", "mode": "Text", "torque_enabled": "Bool", "pose": "Dict", "joints": "List", "updated_at": "Text", "dashboard": "Image", "report": "Text"},
+      "input_defaults": {"run_id": "leader_pose_stream", "action": "release", "transport": "rosbridge", "host": "127.0.0.1", "port": 9090, "state_topic": "/leader/joint_states", "config_topic": "/leader/joint_config", "control_topic": "/leader/robot_control", "units": "degrees", "timeout": 5.0},
+      "input_choices": {"action": ["check", "release", "hold"], "transport": ["auto", "native", "rosbridge"], "units": ["radians", "degrees"]}
+    },
+    "follow": {
+      "id": "follow", "type": "ROS2LeaderFollower", "pos": [1640, 360],
+      "params": {"action": "start", "run_id": "so_arm_leader_follower", "transport": "rosbridge", "host": "127.0.0.1", "port": 9090, "joint_map": {}, "scale": {}, "offset_deg": {}, "loop_hz": 10.0, "max_step_deg": 2.0, "deadband_deg": 0.15, "stale_after": 0.75, "require_calibration": true, "require_leader_released": true, "armed": false, "timeout": 10.0},
+      "inputs": ["trigger", "action", "run_id", "leader_robot", "follower_robot", "transport", "host", "port", "joint_map", "scale", "offset_deg", "loop_hz", "max_step_deg", "deadband_deg", "stale_after", "require_calibration", "require_leader_released", "armed", "timeout"],
+      "outputs": ["running", "live", "armed", "commanded", "leader_pose", "follower_pose", "target", "clamped", "joint_count", "dashboard", "summary", "report"],
+      "input_types": {"trigger": "Any", "action": "Text", "run_id": "Text", "leader_robot": "Dict", "follower_robot": "Dict", "transport": "Text", "host": "Text", "port": "Int", "joint_map": "Dict", "scale": "Dict", "offset_deg": "Dict", "loop_hz": "Float", "max_step_deg": "Float", "deadband_deg": "Float", "stale_after": "Float", "require_calibration": "Bool", "require_leader_released": "Bool", "armed": "Bool", "timeout": "Float"},
+      "output_types": {"running": "Bool", "live": "Bool", "armed": "Bool", "commanded": "Bool", "leader_pose": "Dict", "follower_pose": "Dict", "target": "Dict", "clamped": "List", "joint_count": "Int", "dashboard": "Image", "summary": "Dict", "report": "Text"},
+      "input_defaults": {"action": "start", "run_id": "so_arm_leader_follower", "transport": "rosbridge", "host": "127.0.0.1", "port": 9090, "joint_map": {}, "scale": {}, "offset_deg": {}, "loop_hz": 10.0, "max_step_deg": 2.0, "deadband_deg": 0.15, "stale_after": 0.75, "require_calibration": true, "require_leader_released": true, "armed": false, "timeout": 10.0},
+      "input_choices": {"action": ["start", "stop", "check"], "transport": ["auto", "native", "rosbridge"]}
+    },
+    "out": {
+      "id": "out", "type": "Output", "pos": [2080, 360],
+      "params": {"label": "Leader-follower live state"},
+      "inputs": ["value"], "outputs": [],
+      "input_types": {"value": "Any"}, "output_types": {}, "input_defaults": {}
+    }
+  },
+  "edges": [
+    {"from": "leader_usb", "from_port": "report", "to": "rosbridge", "to_port": "trigger"},
+    {"from": "leader_usb", "from_port": "usb", "to": "leader_profile", "to_port": "hardware"},
+    {"from": "follower_usb", "from_port": "usb", "to": "follower_profile", "to_port": "hardware"},
+    {"from": "leader_profile", "from_port": "driver", "to": "leader_driver", "to_port": "driver"},
+    {"from": "leader_usb", "from_port": "usb", "to": "leader_driver", "to_port": "usb"},
+    {"from": "rosbridge", "from_port": "report", "to": "leader_driver", "to_port": "trigger"},
+    {"from": "follower_profile", "from_port": "driver", "to": "follower_driver", "to_port": "driver"},
+    {"from": "follower_usb", "from_port": "usb", "to": "follower_driver", "to_port": "usb"},
+    {"from": "rosbridge", "from_port": "report", "to": "follower_driver", "to_port": "trigger"},
+    {"from": "leader_driver", "from_port": "robot", "to": "leader_release", "to_port": "robot"},
+    {"from": "leader_driver", "from_port": "report", "to": "leader_release", "to_port": "trigger"},
+    {"from": "leader_release", "from_port": "report", "to": "follow", "to_port": "trigger"},
+    {"from": "leader_driver", "from_port": "robot", "to": "follow", "to_port": "leader_robot"},
+    {"from": "follower_driver", "from_port": "robot", "to": "follow", "to_port": "follower_robot"},
+    {"from": "follow", "from_port": "summary", "to": "out", "to_port": "value"}
+  ]
+}

@@ -264,7 +264,9 @@ def _apply_calibration(profile: dict[str, Any], calibration: dict[str, Any] | No
     return result
 
 
-def _driver_from_profile(profile: dict[str, Any], hardware_id: str = "") -> dict[str, Any]:
+def _driver_from_profile(
+    profile: dict[str, Any], hardware_id: str = "", topic_prefix: str = "",
+) -> dict[str, Any]:
     profile_id = str(profile.get("id") or "robot")
     calibration: dict[str, Any] = {}
     calibration_path: Path | None = None
@@ -292,6 +294,13 @@ def _driver_from_profile(profile: dict[str, Any], hardware_id: str = "") -> dict
     command_topic = str(driver_cfg.get("command_topic") or "/joint_commands")
     config_topic = str(driver_cfg.get("config_topic") or "/joint_config")
     control_topic = str(driver_cfg.get("control_topic") or "/robot_control")
+    clean_prefix = str(topic_prefix or "").strip().strip("/")
+    prefix = f"/{clean_prefix}" if clean_prefix else ""
+    if prefix:
+        state_topic = f"{prefix}/joint_states"
+        command_topic = f"{prefix}/joint_commands"
+        config_topic = f"{prefix}/joint_config"
+        control_topic = f"{prefix}/robot_control"
     command_template = str(driver_cfg.get("command_template") or "").strip()
     if protocol == "feetech":
         joint_arg = ",".join(
@@ -326,6 +335,7 @@ def _driver_from_profile(profile: dict[str, Any], hardware_id: str = "") -> dict
         "joints": joints,
         "profile": effective,
         "hardware_id": hardware_id,
+        "topic_prefix": prefix,
         "calibration_path": str(calibration_path or ""),
     }
 
@@ -513,6 +523,7 @@ def robot_profile_save(ctx: dict) -> dict:
     inputs={
         "profile_id": Enum(_available_profile_ids(), default="so_arm101"),
         "hardware": Dict,
+        "topic_prefix": Text(default=""),
     },
     outputs={"found": Bool, "profile": Dict, "driver": Dict, "calibration": Dict, "path": Text, "report": Text},
 )
@@ -523,7 +534,7 @@ def robot_profile_load(ctx: dict) -> dict:
         known = ", ".join(item["id"] for item in list_profiles()) or "none"
         return {"found": False, "profile": {}, "driver": {}, "calibration": {}, "path": "", "report": f"robot profile '{profile_id}' not found (available: {known})"}
     hardware_id = _hardware_id(ctx)
-    driver = _driver_from_profile(profile, hardware_id)
+    driver = _driver_from_profile(profile, hardware_id, str(ctx.get("topic_prefix") or ""))
     effective = dict(driver.get("profile") or profile)
     return {
         "found": True,
@@ -548,6 +559,7 @@ def robot_profile_load(ctx: dict) -> dict:
         "profile_id": Enum(_available_profile_ids(), default="so_arm101"),
         "hardware_id": Text(default=""),
         "hardware": Dict,
+        "topic_prefix": Text(default=""),
     },
     outputs={"found": Bool, "profile": Dict, "driver": Dict, "calibration": Dict, "path": Text, "report": Text},
 )
