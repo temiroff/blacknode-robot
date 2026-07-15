@@ -27,7 +27,7 @@ driver.
 
 | Node | What it does |
 |---|---|
-| `RobotUSBDiscovery` | Finds `/dev/serial/by-id/*`, `/dev/ttyACM*`, `/dev/ttyUSB*` and reports access fixes |
+| `RobotUSBDiscovery` | Finds Windows `COM*` and Linux USB-serial adapters, exposes copyable `port` and `serial` outputs, and reports access fixes |
 | `RobotDriverDescriptor` | Declares a driver command template and standard topics |
 | `Robot` | Selects a built-in or saved robot and applies the connected device's calibration |
 | `RobotJointDefinition` | Defines one named joint, servo ID, range, zero, and direction |
@@ -52,6 +52,10 @@ The **SO-ARM101 Leader Follower** template runs two `Robot` selectors with
 separate USB serial filters, driver run IDs, and `/leader` and `/follower` ROS
 topic prefixes. It releases only the leader, starts the follower controller in
 disarmed preview, and requires saved calibration for both physical devices.
+Its showcase configuration matches LeRobot teleoperation: `tracking_mode=direct`
+at 60 Hz with no deadband or relative step limiter. The Feetech driver batches
+all joint reads and all goal writes into synchronized bus transactions, while
+calibration limits, stale-stream suppression, and explicit arming still apply.
 
 ## Contract
 
@@ -184,7 +188,8 @@ pip install -r packages/blacknode-robot/requirements.txt   # servo SDK + roslibp
 
 1. Plug in the arm, then run `RobotUSBDiscovery` to confirm its USB-serial
    adapter is found and accessible (fix any permission issue it reports
-   first).
+   first). This confirms the adapter is enumerated, not that robot power or
+   servo communication is healthy; use the driver connection state for that.
 2. Load the **SO-ARM101 Motion Test** template
    (`templates/so-arm101-motion-test.json`): `RobotDriverPreset` (preset
    `so_arm101`) → `RobotDiscovery` (starts the driver process) →

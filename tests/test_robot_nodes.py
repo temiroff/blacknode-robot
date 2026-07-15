@@ -44,6 +44,8 @@ def test_usb_discovery_reports_no_devices(monkeypatch):
 
     assert result["found"] is False
     assert result["ready"] is False
+    assert result["port"] == ""
+    assert result["serial"] == ""
     assert result["devices"] == []
     assert "no USB serial ports detected" in result["report"]
 
@@ -97,11 +99,15 @@ def test_usb_discovery_uses_pyserial_com_ports(monkeypatch):
     assert result["found"] is True
     assert result["ready"] is True
     assert result["recommended"]["path"] == "COM7"
+    assert result["port"] == "COM7"
+    assert result["serial"] == "abc123"
     assert result["recommended"]["vendor_id"] == "1a86"
     assert result["recommended"]["product_id"] == "7523"
     assert result["usb"]["recommended"]["serial"] == "abc123"
     assert "COM7" in result["report"]
     assert "SO-ARM101 Servo Bus" in result["report"]
+    assert "OS detected" in result["report"]
+    assert "discovery confirms the adapter, not robot power" in result["report"]
 
 
 def test_usb_discovery_filters_using_saved_vid_pid(monkeypatch):
@@ -433,6 +439,7 @@ def test_visual_robot_definition_saves_and_loads_named_profile(monkeypatch, tmp_
     loaded = _NODE_REGISTRY["RobotProfileLoad"]({
         "profile_id": "my_custom_arm",
         "topic_prefix": "/leader",
+        "rate_hz": 60.0,
     })
     assert loaded["found"] is True
     assert loaded["profile"]["display_name"] == "My Custom Arm"
@@ -440,6 +447,7 @@ def test_visual_robot_definition_saves_and_loads_named_profile(monkeypatch, tmp_
     assert loaded["driver"]["topic_prefix"] == "/leader"
     assert loaded["driver"]["state_topic"] == "/leader/joint_states"
     assert loaded["driver"]["command_topic"] == "/leader/joint_commands"
+    assert "--rate-hz 60" in loaded["driver"]["command_template"]
     assert "--state-topic /leader/joint_states" in robot_nodes._driver_command(loaded["driver"], "COM7")
 
     listed = _NODE_REGISTRY["RobotProfileList"]({})

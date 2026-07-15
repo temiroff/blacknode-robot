@@ -204,7 +204,7 @@ def test_repeated_torque_control_is_idempotent_but_errors_retry():
     ) is False
 
 
-def test_driver_command_consumes_servo_status_response():
+def test_driver_command_falls_back_to_confirmed_writes_for_older_sdk():
     mod = _load_driver_module()
     joints = mod.parse_joint_map("shoulder_pan:1:-100:100", {}, set())
     writes = []
@@ -227,6 +227,93 @@ def test_driver_command_consumes_servo_status_response():
 
     assert len(writes) == 1
     assert writes[0][0] == 1
+
+
+def test_driver_command_uses_one_group_sync_write_for_all_joints():
+    mod = _load_driver_module()
+    joints = mod.parse_joint_map(
+        "shoulder_pan:1:-100:100,elbow_flex:3:-100:100", {}, set()
+    )
+    groups = []
+
+    class FakeGroupSyncWrite:
+        def __init__(self, _port, _packet, address, width):
+            self.address = address
+            self.width = width
+            self.params = []
+            self.tx_count = 0
+            groups.append(self)
+
+        def addParam(self, servo_id, data):
+            self.params.append((servo_id, data))
+            return True
+
+        def txPacket(self):
+            self.tx_count += 1
+            return 0
+
+    sdk = SimpleNamespace(
+        COMM_SUCCESS=0,
+        GroupSyncWrite=FakeGroupSyncWrite,
+        SCS_LOBYTE=lambda value: value & 0xFF,
+        SCS_HIBYTE=lambda value: (value >> 8) & 0xFF,
+    )
+    mod._apply_command(
+        {
+            "name": ["shoulder_pan", "elbow_flex"],
+            "position": [math.radians(5.0), math.radians(-8.0)],
+        },
+        joints,
+        sdk,
+        object(),
+        object(),
+    )
+
+    assert len(groups) == 1
+    assert groups[0].tx_count == 1
+    assert [servo_id for servo_id, _data in groups[0].params] == [1, 3]
+    assert all(len(data) == 2 for _servo_id, data in groups[0].params)
+
+
+def test_driver_reads_all_joint_positions_with_one_group_transaction():
+    mod = _load_driver_module()
+    joints = mod.parse_joint_map(
+        "shoulder_pan:1:-100:100,elbow_flex:3:-100:100", {}, set()
+    )
+    groups = []
+
+    class FakeGroupSyncRead:
+        def __init__(self, _port, _packet, address, width):
+            self.address = address
+            self.width = width
+            self.ids = []
+            self.tx_count = 0
+            groups.append(self)
+
+        def addParam(self, servo_id):
+            self.ids.append(servo_id)
+            return True
+
+        def txRxPacket(self):
+            self.tx_count += 1
+            return 0
+
+        def isAvailable(self, servo_id, _address, _width):
+            return servo_id in self.ids
+
+        def getData(self, servo_id, _address, _width):
+            return {1: 2100, 3: 1900}[servo_id]
+
+    result = mod._sync_read_positions(
+        SimpleNamespace(COMM_SUCCESS=0, GroupSyncRead=FakeGroupSyncRead),
+        object(),
+        object(),
+        joints,
+    )
+
+    assert result == {"shoulder_pan": 2100, "elbow_flex": 1900}
+    assert len(groups) == 1
+    assert groups[0].tx_count == 1
 
 
 def test_driver_uses_ros2_rosbridge_message_type_names():

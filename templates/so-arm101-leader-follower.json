@@ -41,22 +41,22 @@
     },
     "leader_profile": {
       "id": "leader_profile", "type": "Robot", "pos": [420, 200],
-      "params": {"profile_id": "so_arm101", "topic_prefix": "/leader"},
-      "inputs": ["profile_id", "hardware", "topic_prefix"],
+      "params": {"profile_id": "so_arm101", "topic_prefix": "/leader", "rate_hz": 60.0},
+      "inputs": ["profile_id", "hardware", "topic_prefix", "rate_hz"],
       "outputs": ["found", "profile", "driver", "calibration", "path", "report"],
-      "input_types": {"profile_id": "Text", "hardware": "Dict", "topic_prefix": "Text"},
+      "input_types": {"profile_id": "Text", "hardware": "Dict", "topic_prefix": "Text", "rate_hz": "Float"},
       "output_types": {"found": "Bool", "profile": "Dict", "driver": "Dict", "calibration": "Dict", "path": "Text", "report": "Text"},
-      "input_defaults": {"profile_id": "so_arm101", "topic_prefix": "/leader"},
+      "input_defaults": {"profile_id": "so_arm101", "topic_prefix": "/leader", "rate_hz": 0.0},
       "input_choices": {"profile_id": ["so_arm101"]}
     },
     "follower_profile": {
       "id": "follower_profile", "type": "Robot", "pos": [420, 620],
-      "params": {"profile_id": "so_arm101", "topic_prefix": "/follower"},
-      "inputs": ["profile_id", "hardware", "topic_prefix"],
+      "params": {"profile_id": "so_arm101", "topic_prefix": "/follower", "rate_hz": 60.0},
+      "inputs": ["profile_id", "hardware", "topic_prefix", "rate_hz"],
       "outputs": ["found", "profile", "driver", "calibration", "path", "report"],
-      "input_types": {"profile_id": "Text", "hardware": "Dict", "topic_prefix": "Text"},
+      "input_types": {"profile_id": "Text", "hardware": "Dict", "topic_prefix": "Text", "rate_hz": "Float"},
       "output_types": {"found": "Bool", "profile": "Dict", "driver": "Dict", "calibration": "Dict", "path": "Text", "report": "Text"},
-      "input_defaults": {"profile_id": "so_arm101", "topic_prefix": "/follower"},
+      "input_defaults": {"profile_id": "so_arm101", "topic_prefix": "/follower", "rate_hz": 0.0},
       "input_choices": {"profile_id": ["so_arm101"]}
     },
     "leader_driver": {
@@ -91,13 +91,13 @@
     },
     "follow": {
       "id": "follow", "type": "ROS2LeaderFollower", "pos": [1640, 360],
-      "params": {"action": "start", "run_id": "so_arm_leader_follower", "transport": "rosbridge", "host": "127.0.0.1", "port": 9090, "joint_map": {}, "scale": {}, "offset_deg": {}, "loop_hz": 10.0, "max_step_deg": 2.0, "deadband_deg": 0.15, "stale_after": 0.75, "require_calibration": true, "require_leader_released": true, "armed": false, "timeout": 10.0},
-      "inputs": ["trigger", "action", "run_id", "leader_robot", "follower_robot", "transport", "host", "port", "joint_map", "scale", "offset_deg", "loop_hz", "max_step_deg", "deadband_deg", "stale_after", "require_calibration", "require_leader_released", "armed", "timeout"],
+      "params": {"action": "start", "run_id": "so_arm_leader_follower", "transport": "rosbridge", "host": "127.0.0.1", "port": 9090, "joint_map": {}, "scale": {}, "offset_deg": {}, "tracking_mode": "direct", "loop_hz": 60.0, "max_step_deg": 0.0, "deadband_deg": 0.0, "stale_after": 0.75, "require_calibration": true, "require_leader_released": true, "armed": false, "timeout": 10.0},
+      "inputs": ["trigger", "action", "run_id", "leader_robot", "follower_robot", "transport", "host", "port", "joint_map", "scale", "offset_deg", "tracking_mode", "loop_hz", "max_step_deg", "deadband_deg", "stale_after", "require_calibration", "require_leader_released", "armed", "timeout"],
       "outputs": ["running", "live", "armed", "commanded", "leader_pose", "follower_pose", "target", "clamped", "joint_count", "dashboard", "summary", "report"],
-      "input_types": {"trigger": "Any", "action": "Text", "run_id": "Text", "leader_robot": "Dict", "follower_robot": "Dict", "transport": "Text", "host": "Text", "port": "Int", "joint_map": "Dict", "scale": "Dict", "offset_deg": "Dict", "loop_hz": "Float", "max_step_deg": "Float", "deadband_deg": "Float", "stale_after": "Float", "require_calibration": "Bool", "require_leader_released": "Bool", "armed": "Bool", "timeout": "Float"},
+      "input_types": {"trigger": "Any", "action": "Text", "run_id": "Text", "leader_robot": "Dict", "follower_robot": "Dict", "transport": "Text", "host": "Text", "port": "Int", "joint_map": "Dict", "scale": "Dict", "offset_deg": "Dict", "tracking_mode": "Text", "loop_hz": "Float", "max_step_deg": "Float", "deadband_deg": "Float", "stale_after": "Float", "require_calibration": "Bool", "require_leader_released": "Bool", "armed": "Bool", "timeout": "Float"},
       "output_types": {"running": "Bool", "live": "Bool", "armed": "Bool", "commanded": "Bool", "leader_pose": "Dict", "follower_pose": "Dict", "target": "Dict", "clamped": "List", "joint_count": "Int", "dashboard": "Image", "summary": "Dict", "report": "Text"},
-      "input_defaults": {"action": "start", "run_id": "so_arm_leader_follower", "transport": "rosbridge", "host": "127.0.0.1", "port": 9090, "joint_map": {}, "scale": {}, "offset_deg": {}, "loop_hz": 10.0, "max_step_deg": 2.0, "deadband_deg": 0.15, "stale_after": 0.75, "require_calibration": true, "require_leader_released": true, "armed": false, "timeout": 10.0},
-      "input_choices": {"action": ["start", "stop", "check"], "transport": ["auto", "native", "rosbridge"]}
+      "input_defaults": {"action": "start", "run_id": "so_arm_leader_follower", "transport": "rosbridge", "host": "127.0.0.1", "port": 9090, "joint_map": {}, "scale": {}, "offset_deg": {}, "tracking_mode": "direct", "loop_hz": 60.0, "max_step_deg": 0.0, "deadband_deg": 0.0, "stale_after": 0.75, "require_calibration": true, "require_leader_released": true, "armed": false, "timeout": 10.0},
+      "input_choices": {"action": ["start", "stop", "check"], "transport": ["auto", "native", "rosbridge"], "tracking_mode": ["bounded", "direct"]}
     },
     "out": {
       "id": "out", "type": "Output", "pos": [2080, 360],
