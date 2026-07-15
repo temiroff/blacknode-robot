@@ -7,6 +7,7 @@ never a new node type).
 """
 from __future__ import annotations
 
+import importlib.util
 from pathlib import Path
 from typing import Any
 
@@ -61,8 +62,9 @@ def _joint_table(joints: dict[str, tuple[int, float, float]]) -> str:
         "state_topic": Text(default="/joint_states"),
         "command_topic": Text(default="/joint_commands"),
         "config_topic": Text(default="/joint_config"),
+        "control_topic": Text(default="/robot_control"),
         "rate_hz": Float(default=15.0),
-        "transport": Enum(["native", "rosbridge"], default="native"),
+        "transport": Enum(["auto", "native", "rosbridge"], default="auto"),
         "host": Text(default="127.0.0.1"),
         "port": Int(default=9090),
     },
@@ -79,8 +81,13 @@ def robot_driver_preset(ctx: dict) -> dict:
     state_topic = str(ctx.get("state_topic") or "/joint_states")
     command_topic = str(ctx.get("command_topic") or "/joint_commands")
     config_topic = str(ctx.get("config_topic") or "/joint_config")
+    control_topic = str(ctx.get("control_topic") or "/robot_control")
     rate_hz = float(ctx.get("rate_hz") or 15.0)
-    transport = str(ctx.get("transport") or "native")
+    requested_transport = str(ctx.get("transport") or "auto").strip().lower()
+    if requested_transport == "auto":
+        transport = "native" if importlib.util.find_spec("rclpy") is not None else "rosbridge"
+    else:
+        transport = requested_transport
     host = str(ctx.get("host") or "127.0.0.1")
     port = int(ctx.get("port") or 9090)
 
@@ -88,6 +95,7 @@ def robot_driver_preset(ctx: dict) -> dict:
         f'"{{python}}" "{script}" --port "{{serial_port}}" --baudrate {preset["baudrate"]} '
         f'--joints "{_joints_arg(preset["joints"])}" '
         f'--state-topic {{state_topic}} --command-topic {{command_topic}} --config-topic {{config_topic}} '
+        f'--control-topic {{control_topic}} '
         f'--rate-hz {rate_hz:g} --transport {transport} --host "{host}" --rosbridge-port {port}'
     )
     driver = {
@@ -95,16 +103,20 @@ def robot_driver_preset(ctx: dict) -> dict:
         "name": preset["name"],
         "command_template": command_template,
         "transport": transport,
+        "requested_transport": requested_transport,
         "host": host,
         "port": port,
         "state_topic": state_topic,
         "command_topic": command_topic,
         "config_topic": config_topic,
+        "control_topic": control_topic,
         "units": "degrees",
         "match": {"vendor_id": "", "product_id": ""},
     }
+    transport_note = " (auto-selected)" if requested_transport == "auto" else ""
     report = (
         f"robot driver preset: {preset['name']} ({preset_id})\n"
+        f"transport: {transport}{transport_note}\n"
         f"{_joint_table(preset['joints'])}\n"
         f"launch template: {command_template}"
     )

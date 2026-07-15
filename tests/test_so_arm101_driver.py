@@ -29,15 +29,19 @@ def test_robot_driver_preset_registered():
     assert _NODE_REGISTRY["RobotDriverPreset"]._bn_package == "blacknode-robot"
 
 
-def test_robot_driver_preset_so_arm101_shape():
+def test_robot_driver_preset_so_arm101_shape(monkeypatch):
+    monkeypatch.setattr(presets_module.importlib.util, "find_spec", lambda name: object() if name == "rclpy" else None)
     result = _NODE_REGISTRY["RobotDriverPreset"]({"preset": "so_arm101"})
     driver = result["driver"]
 
     assert driver["id"] == "so_arm101"
     assert driver["transport"] == "native"
+    assert driver["requested_transport"] == "auto"
     assert driver["state_topic"] == "/joint_states"
     assert driver["command_topic"] == "/joint_commands"
     assert driver["config_topic"] == "/joint_config"
+    assert driver["control_topic"] == "/robot_control"
+    assert "--control-topic {control_topic}" in driver["command_template"]
     for name in ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper"]:
         assert name in driver["command_template"]
     assert "--baudrate 1000000" in driver["command_template"]
@@ -69,6 +73,16 @@ def test_robot_driver_preset_rosbridge_transport():
     assert '--host "127.0.0.1" --rosbridge-port 9090' in driver["command_template"]
 
 
+def test_robot_driver_preset_auto_falls_back_to_rosbridge_without_rclpy(monkeypatch):
+    monkeypatch.setattr(presets_module.importlib.util, "find_spec", lambda name: None)
+
+    result = _NODE_REGISTRY["RobotDriverPreset"]({"preset": "so_arm101"})
+
+    assert result["driver"]["transport"] == "rosbridge"
+    assert result["driver"]["requested_transport"] == "auto"
+    assert "transport: rosbridge (auto-selected)" in result["report"]
+
+
 def test_driver_joint_map_parsing_and_degree_math():
     mod = _load_driver_module()
 
@@ -96,6 +110,65 @@ def test_driver_rosbridge_payload_contains_discovered_joint_names():
     assert payload["name"] == ["shoulder_pan", "gripper"]
     assert payload["position"] == [0.0, 0.0]
     assert mod._config_payload(joints)["commands_allowed"] is True
+    assert mod._config_payload(joints, torque_enabled=False)["teach_mode"] is True
+    assert mod._config_payload(joints, torque_enabled=False)["commands_allowed"] is False
+
+
+def test_driver_reenables_torque_only_after_reading_and_seeding_every_joint():
+    mod = _load_driver_module()
+    joints = mod.parse_joint_map("shoulder_pan:1:-100:100,gripper:6:-10:90", {}, set())
+    calls = []
+
+    class Packet:
+        def read2ByteTxRx(self, _port, servo_id, _address):
+            calls.append(("read", servo_id))
+            return 2000 + servo_id, 0, 0
+
+        def write2ByteTxRx(self, _port, servo_id, _address, ticks):
+            calls.append(("goal", servo_id, ticks))
+            return 0, 0
+
+        def write1ByteTxRx(self, _port, servo_id, _address, enabled):
+            calls.append(("torque", servo_id, enabled))
+            return 0, 0
+
+    ok, positions, error = mod._enable_all_torque_at_current_pose(
+        SimpleNamespace(COMM_SUCCESS=0), Packet(), object(), joints
+    )
+
+    assert ok is True
+    assert error == ""
+    assert positions == {"shoulder_pan": 2001, "gripper": 2006}
+    assert calls == [
+        ("read", 1), ("read", 6),
+        ("goal", 1, 2001), ("goal", 6, 2006),
+        ("torque", 1, 1), ("torque", 6, 1),
+    ]
+
+
+def test_driver_failed_teach_exit_returns_every_joint_to_torque_off():
+    mod = _load_driver_module()
+    joints = mod.parse_joint_map("shoulder_pan:1:-100:100,gripper:6:-10:90", {}, set())
+    torque_writes = []
+
+    class Packet:
+        def read2ByteTxRx(self, _port, servo_id, _address):
+            return 2048, 0, 0
+
+        def write2ByteTxRx(self, _port, servo_id, _address, _ticks):
+            return (1, 0) if servo_id == 6 else (0, 0)
+
+        def write1ByteTxRx(self, _port, servo_id, _address, enabled):
+            torque_writes.append((servo_id, enabled))
+            return 0, 0
+
+    ok, _positions, error = mod._enable_all_torque_at_current_pose(
+        SimpleNamespace(COMM_SUCCESS=0), Packet(), object(), joints
+    )
+
+    assert ok is False
+    assert "could not seed Goal_Position for gripper" in error
+    assert torque_writes == [(1, 0), (6, 0)]
 
 
 def test_driver_transient_short_packet_does_not_crash_pose_polling():
@@ -108,6 +181,26 @@ def test_driver_transient_short_packet_does_not_crash_pose_polling():
     packet = SimpleNamespace(read2ByteTxRx=short_packet)
 
     assert mod._read_position_or_none(sdk, packet, object(), 1) is None
+
+
+def test_repeated_torque_control_is_idempotent_but_errors_retry():
+    mod = _load_driver_module()
+
+    assert mod._control_already_applied(
+        "enter_teach", {"torque_enabled": False, "last_error": ""}
+    ) is True
+    assert mod._control_already_applied(
+        "exit_teach", {"torque_enabled": True, "last_error": ""}
+    ) is True
+    assert mod._control_already_applied(
+        "enter_teach", {"torque_enabled": True, "last_error": ""}
+    ) is False
+    assert mod._control_already_applied(
+        "exit_teach", {"torque_enabled": False, "last_error": ""}
+    ) is False
+    assert mod._control_already_applied(
+        "enter_teach", {"torque_enabled": False, "last_error": "one servo failed"}
+    ) is False
 
 
 def test_driver_command_consumes_servo_status_response():
@@ -225,6 +318,7 @@ def test_driver_rosbridge_reconnects_and_resumes_state_stream():
         state_topic="/joint_states",
         config_topic="/joint_config",
         command_topic="/joint_commands",
+        control_topic="/robot_control",
         rate_hz=10.0,
     )
     sdk = SimpleNamespace(COMM_SUCCESS=0)

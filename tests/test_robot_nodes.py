@@ -13,6 +13,7 @@ EXPECTED_NODES = [
     "RobotDriverLauncher",
     "RobotDiscovery",
     "RobotDriverPreset",
+    "RobotConnectionDashboard",
 ]
 
 
@@ -216,3 +217,40 @@ def test_robot_discovery_is_generic_and_driver_first(monkeypatch):
     assert result["robot"]["usb"]["recommended"]["path"] == "/dev/serial/by-id/robot"
     assert result["robot"]["state_topic"] == "/joints"
     assert "=> NEXT: start the robot driver" in result["report"]
+
+
+def test_connection_dashboard_summarizes_ready_robot():
+    result = _NODE_REGISTRY["RobotConnectionDashboard"]({
+        "robot": {
+            "state_topic": "/joint_states",
+            "command_topic": "/joint_commands",
+            "usb": {"ready": True, "recommended": {"path": "COM7"}},
+            "driver": {"running": True, "name": "SO-ARM101", "transport": "native"},
+            "interface": {"kind": "native"},
+        },
+        "connected": True,
+        "interface_ready": True,
+        "pose": {"shoulder_pan": 12.5, "elbow_flex": -3.0},
+    })
+
+    assert result["ready"] is True
+    assert result["summary"]["joint_count"] == 2
+    assert result["summary"]["serial_port"] == "COM7"
+    assert result["dashboard"].startswith("data:image/svg+xml;base64,")
+    assert "READY" in result["report"]
+
+
+def test_connection_dashboard_stays_safe_until_live_pose_arrives():
+    result = _NODE_REGISTRY["RobotConnectionDashboard"]({
+        "robot": {
+            "usb": {"ready": True, "recommended": {"path": "/dev/ttyUSB0"}},
+            "driver": {"running": True, "name": "SO-ARM101"},
+        },
+        "connected": True,
+        "interface_ready": True,
+        "pose": {},
+    })
+
+    assert result["ready"] is False
+    assert result["summary"]["live_pose"] is False
+    assert "WAITING" in result["report"]

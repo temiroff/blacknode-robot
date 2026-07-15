@@ -8,6 +8,8 @@ topic adapters and motion nodes.
 from __future__ import annotations
 
 import glob
+import base64
+import html
 import os
 import shlex
 import signal
@@ -19,7 +21,7 @@ from collections import defaultdict
 from typing import Any
 
 from blacknode.node import Any as AnyPort
-from blacknode.node import Bool, Dict, Enum, Float, Int, List, Text, node
+from blacknode.node import Bool, Dict, Enum, Float, Image, Int, List, Text, node
 
 try:
     import grp
@@ -372,6 +374,7 @@ def _driver_command(driver: dict[str, Any], serial_port: str) -> str:
         "state_topic": str(driver.get("state_topic") or "/joint_states"),
         "command_topic": str(driver.get("command_topic") or "/joint_commands"),
         "config_topic": str(driver.get("config_topic") or ""),
+        "control_topic": str(driver.get("control_topic") or "/robot_control"),
     })
     return template.format_map(values)
 
@@ -572,6 +575,7 @@ def robot_usb_discovery(ctx: dict) -> dict:
         "state_topic": Text(default="/joint_states"),
         "command_topic": Text(default="/joint_commands"),
         "config_topic": Text(default="/joint_config"),
+        "control_topic": Text(default="/robot_control"),
         "units": Enum(["radians", "degrees"], default="degrees"),
         "match_vendor_id": Text(default=""),
         "match_product_id": Text(default=""),
@@ -589,6 +593,7 @@ def robot_driver_descriptor(ctx: dict) -> dict:
         "state_topic": str(ctx.get("state_topic") or "/joint_states"),
         "command_topic": str(ctx.get("command_topic") or "/joint_commands"),
         "config_topic": str(ctx.get("config_topic") or "/joint_config"),
+        "control_topic": str(ctx.get("control_topic") or "/robot_control"),
         "units": str(ctx.get("units") or "degrees"),
         "match": {
             "vendor_id": str(ctx.get("match_vendor_id") or "").strip().lower(),
@@ -737,6 +742,7 @@ def robot_driver_launcher(ctx: dict) -> dict:
         "state_topic": Text(default="/joint_states"),
         "command_topic": Text(default="/joint_commands"),
         "config_topic": Text(default="/joint_config"),
+        "control_topic": Text(default="/robot_control"),
         "units": Enum(["radians", "degrees"], default="degrees"),
     },
     outputs={
@@ -777,6 +783,7 @@ def robot_discovery(ctx: dict) -> dict:
     state_topic = str(driver.get("state_topic") or ctx.get("state_topic") or "/joint_states")
     command_topic = str(driver.get("command_topic") or ctx.get("command_topic") or "/joint_commands")
     config_topic = str(driver.get("config_topic") or ctx.get("config_topic") or "/joint_config")
+    control_topic = str(driver.get("control_topic") or ctx.get("control_topic") or "/robot_control")
     units = str(driver.get("units") or ctx.get("units") or "degrees")
     robot = {
         "host": host,
@@ -784,6 +791,7 @@ def robot_discovery(ctx: dict) -> dict:
         "state_topic": state_topic,
         "command_topic": command_topic,
         "config_topic": config_topic,
+        "control_topic": control_topic,
         "units": units,
         "connected": False,
         "ready": ready,
@@ -832,7 +840,11 @@ def robot_discovery(ctx: dict) -> dict:
     elif not has_driver_command:
         lines.append("=> NEXT: connect a robot-specific driver descriptor")
     elif usb_ready and not driver_running:
-        lines.append("=> NEXT: start the robot driver")
+        driver_report = str(driver_result.get("report") or "")
+        if "last exit code" in driver_report or "FAILED" in driver_report or "exited" in driver_report:
+            lines.append("=> NEXT: fix the driver startup error above, then start it again")
+        else:
+            lines.append("=> NEXT: start the robot driver")
     else:
         lines.append("=> NEXT: configure and start the robot driver")
 
@@ -852,3 +864,121 @@ def robot_discovery(ctx: dict) -> dict:
         "robot": robot,
         "report": "\n".join(lines),
     }
+
+
+def _svg_text(value: Any, limit: int = 64) -> str:
+    text = str(value or "").strip()
+    if len(text) > limit:
+        text = text[: max(0, limit - 1)] + "…"
+    return html.escape(text)
+
+
+def _svg_data(svg: str) -> str:
+    encoded = base64.b64encode(svg.encode("utf-8")).decode("ascii")
+    return f"data:image/svg+xml;base64,{encoded}"
+
+
+@node(
+    name="RobotConnectionDashboard",
+    category=_CATEGORY,
+    description="Render one clear USB, driver, ROS interface, and live-pose readiness screen for a robot demo.",
+    inputs={
+        "robot": Dict,
+        "connected": Bool(default=False),
+        "interface_ready": Bool(default=False),
+        "pose": Dict,
+        "status_report": Text(default=""),
+    },
+    outputs={"dashboard": Image, "ready": Bool, "summary": Dict, "report": Text},
+)
+def robot_connection_dashboard(ctx: dict) -> dict:
+    robot = dict(ctx.get("robot") or {})
+    usb = dict(robot.get("usb") or {})
+    driver = dict(robot.get("driver") or {})
+    pose = dict(ctx.get("pose") or {})
+    connected = bool(ctx.get("connected", False))
+    interface_ready = bool(ctx.get("interface_ready", False))
+    usb_ready = bool(usb.get("ready"))
+    driver_running = bool(driver.get("running"))
+    pose_ready = bool(pose)
+    ready = bool(usb_ready and driver_running and connected and interface_ready and pose_ready)
+
+    recommended = dict(usb.get("recommended") or {})
+    serial_port = str(recommended.get("path") or "not detected")
+    driver_name = str(driver.get("name") or driver.get("id") or "not selected")
+    transport = str((robot.get("interface") or {}).get("kind") or driver.get("transport") or "none")
+    joints = sorted(pose)
+    summary = {
+        "ready": ready,
+        "usb_ready": usb_ready,
+        "driver_running": driver_running,
+        "connected": connected,
+        "interface_ready": interface_ready,
+        "live_pose": pose_ready,
+        "serial_port": serial_port,
+        "driver": driver_name,
+        "transport": transport,
+        "joint_count": len(joints),
+        "pose": pose,
+    }
+
+    stages = [
+        ("USB", usb_ready, serial_port),
+        ("DRIVER", driver_running, driver_name),
+        ("ROS 2", connected and interface_ready, transport),
+        ("LIVE STATE", pose_ready, f"{len(joints)} joints" if joints else "waiting"),
+    ]
+    cards = []
+    for index, (label, ok, detail) in enumerate(stages):
+        x = 36 + index * 260
+        color = "#22c55e" if ok else "#f59e0b"
+        verdict = "READY" if ok else "WAITING"
+        cards.append(
+            f'<rect x="{x}" y="150" width="236" height="132" rx="16" fill="#172033" stroke="{color}" stroke-width="2"/>'
+            f'<circle cx="{x + 28}" cy="181" r="8" fill="{color}"/>'
+            f'<text x="{x + 48}" y="187" fill="#f8fafc" font-family="Arial,sans-serif" font-size="15" font-weight="700">{label}</text>'
+            f'<text x="{x + 20}" y="226" fill="{color}" font-family="Arial,sans-serif" font-size="18" font-weight="800">{verdict}</text>'
+            f'<text x="{x + 20}" y="258" fill="#93a4b8" font-family="monospace" font-size="12">{_svg_text(detail, 27)}</text>'
+        )
+
+    pose_rows = []
+    for index, name in enumerate(joints[:6]):
+        value = pose.get(name)
+        value_text = f"{value:.2f}°" if isinstance(value, (int, float)) else str(value)
+        y = 366 + index * 38
+        pose_rows.append(
+            f'<text x="74" y="{y}" fill="#cbd5e1" font-family="monospace" font-size="15">{_svg_text(name, 24)}</text>'
+            f'<text x="510" y="{y}" text-anchor="end" fill="#f8fafc" font-family="monospace" font-size="15" font-weight="700">{_svg_text(value_text, 18)}</text>'
+        )
+
+    accent = "#22c55e" if ready else "#f59e0b"
+    verdict = "READY TO ARM" if ready else "SAFE / NOT ARMED"
+    next_step = (
+        "Live state verified. Arm one motion node only after clearing the workspace."
+        if ready
+        else "Complete each readiness stage above. Motion remains blocked by default."
+    )
+    svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="640" viewBox="0 0 1120 640">
+<rect width="1120" height="640" rx="28" fill="#0b1020"/>
+<rect x="24" y="24" width="1072" height="92" rx="18" fill="#172033" stroke="#14b8a6" stroke-width="2"/>
+<text x="56" y="64" fill="#f8fafc" font-family="Arial,sans-serif" font-size="26" font-weight="800">ROBOT CONNECTION</text>
+<text x="56" y="91" fill="#93a4b8" font-family="Arial,sans-serif" font-size="15">Plug in → preset → driver → live state</text>
+<rect x="856" y="44" width="210" height="52" rx="26" fill="{accent}"/>
+<text x="961" y="77" text-anchor="middle" fill="#07111f" font-family="Arial,sans-serif" font-size="17" font-weight="900">{verdict}</text>
+{''.join(cards)}
+<rect x="36" y="316" width="510" height="274" rx="16" fill="#172033"/>
+<text x="64" y="344" fill="#93a4b8" font-family="Arial,sans-serif" font-size="13" font-weight="700">LIVE JOINT POSITIONS</text>
+{''.join(pose_rows) if pose_rows else '<text x="64" y="388" fill="#f59e0b" font-family="Arial,sans-serif" font-size="16">Waiting for /joint_states…</text>'}
+<rect x="570" y="316" width="514" height="274" rx="16" fill="#172033"/>
+<text x="598" y="352" fill="#93a4b8" font-family="Arial,sans-serif" font-size="13" font-weight="700">NEXT SAFE ACTION</text>
+<text x="598" y="398" fill="#f8fafc" font-family="Arial,sans-serif" font-size="18" font-weight="700">{_svg_text(next_step, 52)}</text>
+<text x="598" y="470" fill="#93a4b8" font-family="monospace" font-size="13">state: {_svg_text(robot.get('state_topic'), 36)}</text>
+<text x="598" y="500" fill="#93a4b8" font-family="monospace" font-size="13">command: {_svg_text(robot.get('command_topic'), 34)}</text>
+<text x="598" y="548" fill="{accent}" font-family="Arial,sans-serif" font-size="14" font-weight="700">Stop all uses the driver's safe shutdown path.</text>
+</svg>'''
+    report = (
+        f"robot connection dashboard {'READY' if ready else 'WAITING'}: "
+        f"USB={'ok' if usb_ready else 'wait'}, driver={'ok' if driver_running else 'wait'}, "
+        f"interface={'ok' if connected and interface_ready else 'wait'}, live_pose={'ok' if pose_ready else 'wait'}"
+    )
+    return {"dashboard": _svg_data(svg), "ready": ready, "summary": summary, "report": report}

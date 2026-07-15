@@ -141,9 +141,18 @@ def _joint_state_payload(ticks_by_name: dict[str, int], joints: dict[str, JointS
     }
 
 
-def _config_payload(joints: dict[str, JointSpec]) -> dict[str, Any]:
+def _config_payload(
+    joints: dict[str, JointSpec],
+    *,
+    torque_enabled: bool = True,
+    last_error: str = "",
+) -> dict[str, Any]:
     return {
-        "commands_allowed": True,
+        "commands_allowed": torque_enabled,
+        "torque_enabled": torque_enabled,
+        "teach_mode": not torque_enabled,
+        "mode": "hold" if torque_enabled else "teach",
+        "last_error": last_error,
         "joints": {
             name: {
                 "lower": math.radians(clamp_degrees(min(joint.min_deg, joint.max_deg), joint)),
@@ -202,7 +211,19 @@ def _run_rosbridge(
     state_pub = roslibpy.Topic(ros, args.state_topic, "sensor_msgs/msg/JointState")
     config_pub = roslibpy.Topic(ros, args.config_topic, "std_msgs/msg/String", latch=True)
     command_sub = roslibpy.Topic(ros, args.command_topic, "sensor_msgs/msg/JointState")
+    control_sub = roslibpy.Topic(ros, args.control_topic, "std_msgs/msg/String")
     bus_lock = threading.Lock()
+    control_state: dict[str, Any] = {"torque_enabled": True, "last_error": ""}
+    last_known_ticks = dict(current_ticks)
+
+    def publish_config() -> None:
+        config_pub.publish(roslibpy.Message({
+            "data": json.dumps(_config_payload(
+                joints,
+                torque_enabled=bool(control_state["torque_enabled"]),
+                last_error=str(control_state["last_error"]),
+            ))
+        }))
 
     def apply_command_safely(message: Any) -> None:
         try:
@@ -210,16 +231,41 @@ def _run_rosbridge(
             # below reads the same half-duplex serial bus. Feetech packet
             # transactions must never overlap.
             with bus_lock:
+                if not control_state["torque_enabled"]:
+                    return
                 _apply_command(message, joints, sdk, packet, port)
         except Exception as exc:  # keep one bad command from killing transport
             print(f"robot command rejected: {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
 
+    def apply_control_safely(message: Any) -> None:
+        action = _control_action(message)
+        if not action:
+            return
+        try:
+            with bus_lock:
+                if _control_already_applied(action, control_state):
+                    pass
+                elif action == "enter_teach":
+                    ok, error = _disable_all_torque(sdk, packet, port, joints)
+                    control_state["torque_enabled"] = False
+                    control_state["last_error"] = error
+                else:
+                    ok, seeded_ticks, error = _enable_all_torque_at_current_pose(sdk, packet, port, joints)
+                    if ok:
+                        last_known_ticks.update(seeded_ticks)
+                    control_state["torque_enabled"] = ok
+                    control_state["last_error"] = error
+            publish_config()
+        except Exception as exc:
+            control_state["last_error"] = f"{type(exc).__name__}: {exc}"
+            publish_config()
+
     state_pub.advertise()
     config_pub.advertise()
     command_sub.subscribe(apply_command_safely)
-    last_known_ticks = dict(current_ticks)
+    control_sub.subscribe(apply_control_safely)
     try:
-        config_pub.publish(roslibpy.Message({"data": json.dumps(_config_payload(joints))}))
+        publish_config()
         state_pub.publish(roslibpy.Message(_joint_state_payload(last_known_ticks, joints)))
         period = 1.0 / max(0.1, args.rate_hz)
         was_connected = True
@@ -233,7 +279,7 @@ def _run_rosbridge(
                 # latched config and current pose for late subscribers.
                 if stop_event.wait(1.1) or not ros.is_connected:
                     continue
-                config_pub.publish(roslibpy.Message({"data": json.dumps(_config_payload(joints))}))
+                publish_config()
                 state_pub.publish(roslibpy.Message(_joint_state_payload(last_known_ticks, joints)))
                 was_connected = True
             with bus_lock:
@@ -245,6 +291,7 @@ def _run_rosbridge(
     finally:
         try:
             command_sub.unsubscribe()
+            control_sub.unsubscribe()
             state_pub.unadvertise()
             config_pub.unadvertise()
         finally:
@@ -293,6 +340,72 @@ def _set_torque(sdk: Any, packet: Any, port: Any, servo_id: int, enabled: bool) 
     address, _width = ADDR_TORQUE_ENABLE
     comm_result, servo_error = packet.write1ByteTxRx(port, servo_id, address, 1 if enabled else 0)
     return comm_result == sdk.COMM_SUCCESS and servo_error == 0
+
+
+def _disable_all_torque(
+    sdk: Any,
+    packet: Any,
+    port: Any,
+    joints: dict[str, JointSpec],
+) -> tuple[bool, str]:
+    failed = [
+        name
+        for name, joint in joints.items()
+        if not _set_torque(sdk, packet, port, joint.servo_id, False)
+    ]
+    if failed:
+        return False, f"could not disable torque for: {', '.join(failed)}"
+    return True, ""
+
+
+def _enable_all_torque_at_current_pose(
+    sdk: Any,
+    packet: Any,
+    port: Any,
+    joints: dict[str, JointSpec],
+) -> tuple[bool, dict[str, int], str]:
+    """Read every joint, seed its goal while limp, then enable holding torque.
+
+    Any read, goal-write, or torque-enable failure returns the whole arm to the
+    safest available state (torque off) instead of leaving a partially holding
+    robot.
+    """
+    current_ticks: dict[str, int] = {}
+    for name, joint in joints.items():
+        ticks = _read_position_or_none(sdk, packet, port, joint.servo_id)
+        if ticks is None:
+            _disable_all_torque(sdk, packet, port, joints)
+            return False, current_ticks, f"could not read Present_Position for {name} (servo id {joint.servo_id})"
+        current_ticks[name] = ticks
+
+    for name, joint in joints.items():
+        if not _write_goal(sdk, packet, port, joint.servo_id, current_ticks[name], confirm=True):
+            _disable_all_torque(sdk, packet, port, joints)
+            return False, current_ticks, f"could not seed Goal_Position for {name} (servo id {joint.servo_id})"
+
+    for name, joint in joints.items():
+        if not _set_torque(sdk, packet, port, joint.servo_id, True):
+            _disable_all_torque(sdk, packet, port, joints)
+            return False, current_ticks, f"could not enable torque for {name} (servo id {joint.servo_id})"
+    return True, current_ticks, ""
+
+
+def _control_action(message: Any) -> str:
+    raw = message.get("data", "") if isinstance(message, dict) else getattr(message, "data", "")
+    try:
+        payload = json.loads(raw or "{}")
+    except (TypeError, ValueError):
+        return ""
+    action = str(payload.get("action") or "").strip().lower() if isinstance(payload, dict) else ""
+    return action if action in {"enter_teach", "exit_teach"} else ""
+
+
+def _control_already_applied(action: str, control_state: dict[str, Any]) -> bool:
+    """True when a repeated reliable-delivery command needs no bus writes."""
+    if str(control_state.get("last_error") or ""):
+        return False
+    torque_enabled = bool(control_state.get("torque_enabled"))
+    return (action == "enter_teach" and not torque_enabled) or (action == "exit_teach" and torque_enabled)
 
 
 def _open_port(sdk: Any, port_name: str, baudrate: int) -> Any:
@@ -347,6 +460,7 @@ def main() -> int:
     parser.add_argument("--state-topic", default="/joint_states")
     parser.add_argument("--command-topic", default="/joint_commands")
     parser.add_argument("--config-topic", default="/joint_config")
+    parser.add_argument("--control-topic", default="/robot_control")
     parser.add_argument("--rate-hz", type=float, default=15.0)
     parser.add_argument("--transport", choices=("native", "rosbridge"), default="native")
     parser.add_argument("--host", default="127.0.0.1", help="rosbridge host when --transport=rosbridge")
@@ -384,15 +498,9 @@ def main() -> int:
     # value from a previous session, or a register default). So: read first,
     # seed Goal_Position with the just-read value while torque is still off,
     # THEN enable torque -- there is nothing left for the servo to snap toward.
-    current_ticks: dict[str, int] = {
-        name: _read_position(sdk, packet, port, joint.servo_id) for name, joint in joints.items()
-    }
-    for name, joint in joints.items():
-        if not _write_goal(sdk, packet, port, joint.servo_id, current_ticks[name], confirm=True):
-            _fail(f"could not seed Goal_Position for {name} (servo id {joint.servo_id}) before enabling torque")
-    for name, joint in joints.items():
-        if not _set_torque(sdk, packet, port, joint.servo_id, True):
-            _fail(f"could not enable torque on {name} (servo id {joint.servo_id})")
+    enabled, current_ticks, enable_error = _enable_all_torque_at_current_pose(sdk, packet, port, joints)
+    if not enabled:
+        _fail(enable_error)
 
     stop_event = threading.Event()
 
@@ -424,6 +532,8 @@ def main() -> int:
     state_pub = node.create_publisher(JointState, args.state_topic, 10)
     config_qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.TRANSIENT_LOCAL)
     config_pub = node.create_publisher(String, args.config_topic, config_qos)
+    control_state: dict[str, Any] = {"torque_enabled": True, "last_error": ""}
+    bus_lock = threading.Lock()
 
     def publish_state(ticks_by_name: dict[str, int]) -> None:
         msg = JointState()
@@ -439,33 +549,44 @@ def main() -> int:
     # value the instant it reads, not a startup race against an empty topic.
     publish_state(current_ticks)
 
-    config_msg = String()
-    config_msg.data = json.dumps({
-        "commands_allowed": True,
-        "joints": {
-            name: {
-                "lower": math.radians(clamp_degrees(min(joint.min_deg, joint.max_deg), joint)),
-                "upper": math.radians(clamp_degrees(max(joint.min_deg, joint.max_deg), joint)),
-            }
-            for name, joint in joints.items()
-        },
-    })
-    config_pub.publish(config_msg)  # published once; latched QoS keeps it available to late subscribers
+    def publish_config() -> None:
+        config_msg = String()
+        config_msg.data = json.dumps(_config_payload(
+            joints,
+            torque_enabled=bool(control_state["torque_enabled"]),
+            last_error=str(control_state["last_error"]),
+        ))
+        config_pub.publish(config_msg)
+
+    publish_config()  # latched QoS keeps the latest torque state available to late subscribers
 
     def on_command(msg: Any) -> None:
-        for name, position_rad in zip(msg.name, msg.position):
-            joint = joints.get(str(name))
-            if joint is None:
-                continue
-            # Defense in depth: ROS2NativeSetJoint already clamps to the
-            # /joint_config limits published above before it ever sends a
-            # command, but this driver never trusts a publisher that might
-            # bypass that node and write /joint_commands directly.
-            deg = clamp_degrees(math.degrees(float(position_rad)), joint)
-            ticks = degrees_to_ticks(deg, joint)
-            _write_goal(sdk, packet, port, joint.servo_id, ticks, confirm=False)
+        with bus_lock:
+            if not control_state["torque_enabled"]:
+                return
+            _apply_command(msg, joints, sdk, packet, port)
+
+    def on_control(msg: Any) -> None:
+        action = _control_action(msg)
+        if not action:
+            return
+        with bus_lock:
+            if _control_already_applied(action, control_state):
+                pass
+            elif action == "enter_teach":
+                _ok, error = _disable_all_torque(sdk, packet, port, joints)
+                control_state["torque_enabled"] = False
+                control_state["last_error"] = error
+            else:
+                ok, seeded_ticks, error = _enable_all_torque_at_current_pose(sdk, packet, port, joints)
+                if ok:
+                    last_known_ticks.update(seeded_ticks)
+                control_state["torque_enabled"] = ok
+                control_state["last_error"] = error
+        publish_config()
 
     node.create_subscription(JointState, args.command_topic, on_command, 10)
+    node.create_subscription(String, args.control_topic, on_control, 10)
 
     period = 1.0 / max(0.1, args.rate_hz)
     last_known_ticks = dict(current_ticks)
@@ -476,12 +597,13 @@ def main() -> int:
             now = time.monotonic()
             if now - last_publish >= period:
                 last_publish = now
-                for name, joint in joints.items():
-                    ticks = _read_position_or_none(sdk, packet, port, joint.servo_id)
-                    if ticks is not None:
-                        last_known_ticks[name] = ticks
-                    # else: keep the last known value; a transient bus error
-                    # on one poll should not stall the whole state publish.
+                with bus_lock:
+                    for name, joint in joints.items():
+                        ticks = _read_position_or_none(sdk, packet, port, joint.servo_id)
+                        if ticks is not None:
+                            last_known_ticks[name] = ticks
+                        # else: keep the last known value; a transient bus error
+                        # on one poll should not stall the whole state publish.
                 publish_state(last_known_ticks)
     finally:
         if args.torque_off_on_exit:
