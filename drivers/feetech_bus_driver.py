@@ -172,15 +172,15 @@ def _apply_command(
 ) -> None:
     names = message.get("name", []) if isinstance(message, dict) else getattr(message, "name", [])
     positions = message.get("position", []) if isinstance(message, dict) else getattr(message, "position", [])
+    goals: dict[int, int] = {}
     for name, position_rad in zip(names, positions):
         joint = joints.get(str(name))
         if joint is None:
             continue
         deg = clamp_degrees(math.degrees(float(position_rad)), joint)
-        # Consume the servo's status packet for every write. Tx-only leaves
-        # response bytes on this half-duplex bus on common STS3215 setups;
-        # the following position read then sees a truncated/misaligned packet.
-        _write_goal(sdk, packet, port, joint.servo_id, degrees_to_ticks(deg, joint), confirm=True)
+        goals[joint.servo_id] = degrees_to_ticks(deg, joint)
+    if goals:
+        _sync_write_goals(sdk, packet, port, goals)
 
 
 def _run_rosbridge(
@@ -283,10 +283,7 @@ def _run_rosbridge(
                 state_pub.publish(roslibpy.Message(_joint_state_payload(last_known_ticks, joints)))
                 was_connected = True
             with bus_lock:
-                for name, joint in joints.items():
-                    ticks = _read_position_or_none(sdk, packet, port, joint.servo_id)
-                    if ticks is not None:
-                        last_known_ticks[name] = ticks
+                last_known_ticks.update(_sync_read_positions(sdk, packet, port, joints))
             state_pub.publish(roslibpy.Message(_joint_state_payload(last_known_ticks, joints)))
     finally:
         try:
@@ -323,6 +320,67 @@ def _read_position_or_none(sdk: Any, packet: Any, port: Any, servo_id: int) -> i
     if comm_result != sdk.COMM_SUCCESS or servo_error != 0:
         return None
     return int(ticks)
+
+
+def _sync_read_positions(
+    sdk: Any,
+    packet: Any,
+    port: Any,
+    joints: dict[str, JointSpec],
+) -> dict[str, int]:
+    """Read the whole daisy chain with the same group transaction as LeRobot.
+
+    Older/test SDK shims may not expose GroupSyncRead; retain a sequential
+    fallback so custom protocol adapters remain compatible.
+    """
+    group_type = getattr(sdk, "GroupSyncRead", None)
+    if group_type is None:
+        return {
+            name: ticks
+            for name, joint in joints.items()
+            if (ticks := _read_position_or_none(sdk, packet, port, joint.servo_id)) is not None
+        }
+    address, width = ADDR_PRESENT_POSITION
+    group = group_type(port, packet, address, width)
+    for joint in joints.values():
+        if not group.addParam(joint.servo_id):
+            return {}
+    try:
+        if group.txRxPacket() != sdk.COMM_SUCCESS:
+            return {}
+        return {
+            name: int(group.getData(joint.servo_id, address, width))
+            for name, joint in joints.items()
+            if group.isAvailable(joint.servo_id, address, width)
+        }
+    except Exception:
+        return {}
+
+
+def _sync_write_goals(
+    sdk: Any,
+    packet: Any,
+    port: Any,
+    goals: dict[int, int],
+) -> bool:
+    """Send all joint goals in one broadcast packet, matching LeRobot."""
+    group_type = getattr(sdk, "GroupSyncWrite", None)
+    if group_type is None:
+        return all(
+            _write_goal(sdk, packet, port, servo_id, ticks, confirm=True)
+            for servo_id, ticks in goals.items()
+        )
+    address, width = ADDR_GOAL_POSITION
+    group = group_type(port, packet, address, width)
+    low_byte = getattr(sdk, "SCS_LOBYTE", lambda value: value & 0xFF)
+    high_byte = getattr(sdk, "SCS_HIBYTE", lambda value: (value >> 8) & 0xFF)
+    for servo_id, ticks in goals.items():
+        if not group.addParam(servo_id, [low_byte(ticks), high_byte(ticks)]):
+            return False
+    try:
+        return group.txPacket() == sdk.COMM_SUCCESS
+    except Exception:
+        return False
 
 
 def _write_goal(sdk: Any, packet: Any, port: Any, servo_id: int, ticks: int, *, confirm: bool) -> bool:
@@ -461,7 +519,7 @@ def main() -> int:
     parser.add_argument("--command-topic", default="/joint_commands")
     parser.add_argument("--config-topic", default="/joint_config")
     parser.add_argument("--control-topic", default="/robot_control")
-    parser.add_argument("--rate-hz", type=float, default=15.0)
+    parser.add_argument("--rate-hz", type=float, default=60.0)
     parser.add_argument("--transport", choices=("native", "rosbridge"), default="native")
     parser.add_argument("--host", default="127.0.0.1", help="rosbridge host when --transport=rosbridge")
     parser.add_argument("--rosbridge-port", type=int, default=9090)
@@ -598,12 +656,7 @@ def main() -> int:
             if now - last_publish >= period:
                 last_publish = now
                 with bus_lock:
-                    for name, joint in joints.items():
-                        ticks = _read_position_or_none(sdk, packet, port, joint.servo_id)
-                        if ticks is not None:
-                            last_known_ticks[name] = ticks
-                        # else: keep the last known value; a transient bus error
-                        # on one poll should not stall the whole state publish.
+                    last_known_ticks.update(_sync_read_positions(sdk, packet, port, joints))
                 publish_state(last_known_ticks)
     finally:
         if args.torque_off_on_exit:

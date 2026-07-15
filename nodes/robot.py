@@ -346,6 +346,13 @@ def _format_serial_device(device: dict[str, Any]) -> str:
     access = "access OK" if device.get("accessible") else "access blocked"
     suffix = f" -> {real}" if real and real != path else ""
     if device.get("source") == "pyserial":
+        probe = str(device.get("probe") or "")
+        if probe == "open_ok":
+            access = "open OK"
+        elif probe:
+            access = "open failed"
+        else:
+            access = "OS detected"
         bits = [access]
         if device.get("vendor_id") and device.get("product_id"):
             bits.append(f"vid:pid={device['vendor_id']}:{device['product_id']}")
@@ -525,7 +532,17 @@ def stop_runtime_services() -> dict[str, Any]:
         "match_product_id": Text(default=""),
         "probe_open": Bool(default=False),
     },
-    outputs={"found": Bool, "ready": Bool, "devices": List, "recommended": Dict, "usb": Dict, "permissions": Dict, "report": Text},
+    outputs={
+        "found": Bool,
+        "ready": Bool,
+        "port": Text,
+        "serial": Text,
+        "devices": List,
+        "recommended": Dict,
+        "usb": Dict,
+        "permissions": Dict,
+        "report": Text,
+    },
 )
 def robot_usb_discovery(ctx: dict) -> dict:
     text_filter = str(ctx.get("port_filter") or "").strip()
@@ -578,7 +595,9 @@ def robot_usb_discovery(ctx: dict) -> dict:
         if recommended:
             lines.append(f"recommended_port: {recommended.get('path')}")
         if ready:
-            lines.append("=> READY: at least one robot USB serial port is readable and writable")
+            lines.append("=> ADAPTER READY: the operating system exposes at least one USB serial adapter")
+            if not probe_open:
+                lines.append("note: discovery confirms the adapter, not robot power or servo communication; enable probe_open to test opening the port")
         else:
             lines.append("=> NOT READY: USB serial device exists but Blacknode does not have read/write access")
             for fix in fixes[:6]:
@@ -595,6 +614,8 @@ def robot_usb_discovery(ctx: dict) -> dict:
     return {
         "found": found,
         "ready": ready,
+        "port": str(recommended.get("path") or ""),
+        "serial": str(recommended.get("serial") or ""),
         "devices": devices,
         "recommended": recommended,
         "usb": usb,

@@ -157,7 +157,7 @@ def _so_arm101_profile() -> dict[str, Any]:
             "transport": "auto",
             "host": "127.0.0.1",
             "port": 9090,
-            "rate_hz": 15.0,
+            "rate_hz": 60.0,
             "state_topic": "/joint_states",
             "command_topic": "/joint_commands",
             "config_topic": "/joint_config",
@@ -524,6 +524,7 @@ def robot_profile_save(ctx: dict) -> dict:
         "profile_id": Enum(_available_profile_ids(), default="so_arm101"),
         "hardware": Dict,
         "topic_prefix": Text(default=""),
+        "rate_hz": Float(default=0.0),
     },
     outputs={"found": Bool, "profile": Dict, "driver": Dict, "calibration": Dict, "path": Text, "report": Text},
 )
@@ -534,7 +535,11 @@ def robot_profile_load(ctx: dict) -> dict:
         known = ", ".join(item["id"] for item in list_profiles()) or "none"
         return {"found": False, "profile": {}, "driver": {}, "calibration": {}, "path": "", "report": f"robot profile '{profile_id}' not found (available: {known})"}
     hardware_id = _hardware_id(ctx)
-    driver = _driver_from_profile(profile, hardware_id, str(ctx.get("topic_prefix") or ""))
+    effective_profile = copy.deepcopy(profile)
+    rate_override = float(ctx.get("rate_hz") or 0.0)
+    if rate_override > 0:
+        effective_profile.setdefault("driver", {})["rate_hz"] = rate_override
+    driver = _driver_from_profile(effective_profile, hardware_id, str(ctx.get("topic_prefix") or ""))
     effective = dict(driver.get("profile") or profile)
     return {
         "found": True,
@@ -560,6 +565,7 @@ def robot_profile_load(ctx: dict) -> dict:
         "hardware_id": Text(default=""),
         "hardware": Dict,
         "topic_prefix": Text(default=""),
+        "rate_hz": Float(default=0.0),
     },
     outputs={"found": Bool, "profile": Dict, "driver": Dict, "calibration": Dict, "path": Text, "report": Text},
 )
