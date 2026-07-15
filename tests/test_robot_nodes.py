@@ -1,3 +1,4 @@
+import base64
 import io
 import json
 import sys
@@ -527,6 +528,35 @@ def test_calibration_pause_resume_preserves_samples_and_live_pose(monkeypatch, t
     assert resumed["state"] == "recording"
     assert resumed["samples"] == paused_samples + 1
     assert resumed["pose"] == {"shoulder_pan": 9.0}
+
+
+def test_calibration_highlights_moving_joint_and_extended_range(monkeypatch, tmp_path):
+    monkeypatch.setenv("BLACKNODE_ROBOTS_DIR", str(tmp_path / "robots"))
+    profile_nodes.stop_calibration_services()
+    profile = profile_nodes.builtin_profile("so_arm101")
+    profile["joints"] = profile["joints"][:1]
+    run_id = "highlight_calibration"
+    _NODE_REGISTRY["RobotCalibrationRecorder"]({
+        "action": "start",
+        "run_id": run_id,
+        "profile": profile,
+        "hardware_id": "HIGHLIGHT-1",
+        "pose": {"shoulder_pan": 0.0},
+        "torque_enabled": False,
+    })
+
+    result = _NODE_REGISTRY["RobotCalibrationRecorder"]({
+        "action": "_sample",
+        "run_id": run_id,
+        "pose": {"shoulder_pan": -7.0},
+        "torque_enabled": False,
+    })
+
+    assert result["capturing_joint"] == "shoulder_pan"
+    assert result["range_updates"]["shoulder_pan"]["kind"] == "min"
+    svg = base64.b64decode(result["dashboard"].split(",", 1)[1]).decode("utf-8")
+    assert "CAPTURING shoulder_pan" in svg
+    assert "MIN ↓" in svg
 
 
 def test_custom_robot_templates_validate():

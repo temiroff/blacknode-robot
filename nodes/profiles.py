@@ -599,18 +599,39 @@ def robot_profile_duplicate(ctx: dict) -> dict:
 def _sample_session(session: dict[str, Any], pose: dict[str, Any]) -> int:
     accepted = 0
     allowed = {str(joint.get("id")) for joint in _joint_list(session["profile"])}
+    previous_pose = dict(session.get("last_pose") or {})
+    now = time.time()
+    movement: list[tuple[float, str]] = []
     for name, raw in pose.items():
         if name not in allowed or not isinstance(raw, (int, float)):
             continue
         value = float(raw)
+        previous_value = previous_pose.get(name)
+        if isinstance(previous_value, (int, float)):
+            movement.append((abs(value - float(previous_value)), name))
+        is_new = name not in session["observed"]
         bounds = session["observed"].setdefault(name, {"min_deg": value, "max_deg": value})
+        old_min = float(bounds["min_deg"])
+        old_max = float(bounds["max_deg"])
         bounds["min_deg"] = min(float(bounds["min_deg"]), value)
         bounds["max_deg"] = max(float(bounds["max_deg"]), value)
+        update_kind = "both" if is_new else "min" if value < old_min else "max" if value > old_max else ""
+        if update_kind:
+            session.setdefault("range_updates", {})[name] = {
+                "kind": update_kind,
+                "value": value,
+                "at": now,
+            }
         accepted += 1
     if accepted:
         session["samples"] += 1
-        session["last_pose"] = {str(k): float(v) for k, v in pose.items() if isinstance(v, (int, float))}
-        session["updated_at"] = time.time()
+        session["last_pose"] = {str(k): float(v) for k, v in pose.items() if k in allowed and isinstance(v, (int, float))}
+        if movement:
+            delta, moved_joint = max(movement)
+            if delta >= 0.05:
+                session["capturing_joint"] = moved_joint
+                session["capturing_at"] = now
+        session["updated_at"] = now
     return accepted
 
 
@@ -622,18 +643,39 @@ def _calibration_dashboard(session: dict[str, Any] | None, report: str) -> str:
     observed = dict(session.get("observed") or {}) if session else {}
     home = dict(session.get("home") or {}) if session else {}
     current = dict(session.get("last_pose") or {}) if session else {}
+    range_updates = dict(session.get("range_updates") or {}) if session else {}
+    now = time.time()
+    capturing_joint = str(session.get("capturing_joint") or "") if session else ""
+    capturing_recent = bool(
+        active
+        and capturing_joint
+        and now - float(session.get("capturing_at") or 0.0) <= 1.25
+    ) if session else False
     for index, name in enumerate(sorted(observed)[:8]):
         bounds = observed[name]
         y = 178 + index * 44
+        update = range_updates.get(name) if isinstance(range_updates.get(name), dict) else {}
+        update_recent = bool(update and now - float(update.get("at") or 0.0) <= 1.5)
+        moving = capturing_recent and name == capturing_joint
+        row_fill = "#78350f" if update_recent else "#172554" if moving else "transparent"
+        current_fill = "#60a5fa" if moving else "#f8fafc"
+        range_fill = "#fbbf24" if update_recent else "#93a4b8"
+        update_kind = str(update.get("kind") or "").upper()
+        update_badge = "RANGE" if update_kind == "BOTH" else f"{update_kind} {'↓' if update_kind == 'MIN' else '↑'}" if update_kind else ""
+        row_prefix = f'<rect x="28" y="{y - 25}" width="624" height="34" rx="7" fill="{row_fill}" opacity="0.72"/>'
         rows.append(
-            f'<text x="46" y="{y}" fill="#f8fafc" font-family="monospace" font-size="15">{html.escape(name)}</text>'
-            f'<text x="270" y="{y}" text-anchor="end" fill="#f8fafc" font-family="monospace" font-size="15">{float(current.get(name, 0.0)):.2f}</text>'
-            f'<text x="500" y="{y}" text-anchor="end" fill="#93a4b8" font-family="monospace" font-size="15">{float(bounds["min_deg"]):.2f} .. {float(bounds["max_deg"]):.2f}</text>'
+            row_prefix
+            + f'<text x="46" y="{y}" fill="#f8fafc" font-family="monospace" font-size="15">{html.escape(name)}</text>'
+            f'<text x="270" y="{y}" text-anchor="end" fill="{current_fill}" font-family="monospace" font-size="15">{float(current.get(name, 0.0)):.2f}</text>'
+            f'<text x="500" y="{y}" text-anchor="end" fill="{range_fill}" font-family="monospace" font-size="15">{float(bounds["min_deg"]):.2f} .. {float(bounds["max_deg"]):.2f}</text>'
+            f'<text x="510" y="{y}" fill="{range_fill}" font-family="Arial" font-size="10" font-weight="800">{update_badge if update_recent else ""}</text>'
             f'<text x="640" y="{y}" text-anchor="end" fill="{accent}" font-family="monospace" font-size="15">{float(home[name]):.2f}</text>'
             if name in home else
-            f'<text x="46" y="{y}" fill="#f8fafc" font-family="monospace" font-size="15">{html.escape(name)}</text>'
-            f'<text x="270" y="{y}" text-anchor="end" fill="#f8fafc" font-family="monospace" font-size="15">{float(current.get(name, 0.0)):.2f}</text>'
-            f'<text x="500" y="{y}" text-anchor="end" fill="#93a4b8" font-family="monospace" font-size="15">{float(bounds["min_deg"]):.2f} .. {float(bounds["max_deg"]):.2f}</text>'
+            row_prefix
+            + f'<text x="46" y="{y}" fill="#f8fafc" font-family="monospace" font-size="15">{html.escape(name)}</text>'
+            f'<text x="270" y="{y}" text-anchor="end" fill="{current_fill}" font-family="monospace" font-size="15">{float(current.get(name, 0.0)):.2f}</text>'
+            f'<text x="500" y="{y}" text-anchor="end" fill="{range_fill}" font-family="monospace" font-size="15">{float(bounds["min_deg"]):.2f} .. {float(bounds["max_deg"]):.2f}</text>'
+            f'<text x="510" y="{y}" fill="{range_fill}" font-family="Arial" font-size="10" font-weight="800">{update_badge if update_recent else ""}</text>'
             f'<text x="640" y="{y}" text-anchor="end" fill="#64748b" font-family="monospace" font-size="15">-</text>'
         )
     if not rows:
@@ -641,11 +683,13 @@ def _calibration_dashboard(session: dict[str, Any] | None, report: str) -> str:
     state = "RECORDING" if active else "PAUSED" if paused else "IDLE / SAVED"
     samples = int(session.get("samples") or 0) if session else 0
     safe_report = html.escape(report[:100])
+    capture_label = html.escape(f"CAPTURING {capturing_joint}" if capturing_recent else "")
     svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="680" height="590" viewBox="0 0 680 590">
 <rect width="680" height="590" rx="22" fill="#0b1020"/>
 <rect x="22" y="22" width="636" height="100" rx="16" fill="#172033" stroke="{accent}" stroke-width="2"/>
 <text x="44" y="58" fill="#f8fafc" font-family="Arial" font-size="23" font-weight="800">ROBOT CALIBRATION</text>
 <text x="44" y="91" fill="{accent}" font-family="Arial" font-size="16" font-weight="800">{state} · {samples} SAMPLES</text>
+<text x="636" y="91" text-anchor="end" fill="#60a5fa" font-family="Arial" font-size="13" font-weight="800">{capture_label}</text>
 <text x="46" y="146" fill="#93a4b8" font-family="Arial" font-size="12">JOINT</text>
 <text x="270" y="146" text-anchor="end" fill="#93a4b8" font-family="Arial" font-size="12">CURRENT</text>
 <text x="500" y="146" text-anchor="end" fill="#93a4b8" font-family="Arial" font-size="12">OBSERVED RANGE</text>
@@ -664,6 +708,9 @@ def _session_outputs(session: dict[str, Any] | None, report: str, *, saved: bool
     paused = bool(session and session.get("paused"))
     state = "recording" if active else "paused" if paused else "saved" if calibration else "idle"
     saved_path = path or (str(session.get("path") or "") if session else "")
+    capturing_joint = ""
+    if session and active and time.time() - float(session.get("capturing_at") or 0.0) <= 1.25:
+        capturing_joint = str(session.get("capturing_joint") or "")
     return {
         "live": bool(session and session.get("monitoring")),
         "state": state,
@@ -671,6 +718,8 @@ def _session_outputs(session: dict[str, Any] | None, report: str, *, saved: bool
         "data_ready": bool(session and session.get("observed")),
         "samples": int(session.get("samples") or 0) if session else 0,
         "pose": copy.deepcopy(session.get("last_pose") or {}) if session else {},
+        "capturing_joint": capturing_joint,
+        "range_updates": copy.deepcopy(session.get("range_updates") or {}) if session else {},
         "observed": copy.deepcopy(session.get("observed") or {}) if session else {},
         "home": copy.deepcopy(session.get("home") or {}) if session else {},
         "calibration": calibration,
@@ -695,6 +744,8 @@ def _session_outputs(session: dict[str, Any] | None, report: str, *, saved: bool
         "hardware_id": Text(default=""),
         "hardware": Dict,
         "pose": Dict,
+        "capturing_joint": Text,
+        "range_updates": Dict,
         "torque_enabled": Bool(default=True),
         "require_released": Bool(default=True),
         "safety_margin_deg": Float(default=3.0),

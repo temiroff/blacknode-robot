@@ -152,6 +152,11 @@ automatically applies the matching
 device calibration when given the discovery hardware output; another physical
 robot with the same profile keeps a separate calibration.
 
+While recording, the most strongly moving joint is labeled **CAPTURING**. Its
+row turns blue, and a newly extended limit flashes amber with `MIN ↓`, `MAX ↑`,
+or `RANGE`. This distinguishes ordinary motion inside an already observed range
+from a sample that actually changed the saved extrema.
+
 ### SO-ARM101 (`preset: so_arm101`)
 
 Drives a real [SO-ARM101](https://github.com/TheRobotStudio/SO-ARM100) —
