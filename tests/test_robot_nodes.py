@@ -1,10 +1,14 @@
 import io
+import json
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 import blacknode  # noqa: F401
 from blacknode.node import _NODE_REGISTRY
+from blacknode.workflow import validate_workflow
 from blacknode.pkg.blacknode_robot import robot as robot_nodes
+from blacknode.pkg.blacknode_robot import profiles as profile_nodes
 
 
 EXPECTED_NODES = [
@@ -14,6 +18,14 @@ EXPECTED_NODES = [
     "RobotDiscovery",
     "RobotDriverPreset",
     "RobotConnectionDashboard",
+    "RobotJointDefinition",
+    "RobotJointList",
+    "RobotDefinition",
+    "RobotProfileSave",
+    "RobotProfileLoad",
+    "RobotProfileList",
+    "RobotProfileDuplicate",
+    "RobotCalibrationRecorder",
 ]
 
 
@@ -254,3 +266,167 @@ def test_connection_dashboard_stays_safe_until_live_pose_arrives():
     assert result["ready"] is False
     assert result["summary"]["live_pose"] is False
     assert "WAITING" in result["report"]
+
+
+def test_visual_robot_definition_saves_and_loads_named_profile(monkeypatch, tmp_path):
+    monkeypatch.setenv("BLACKNODE_ROBOTS_DIR", str(tmp_path / "robots"))
+    shoulder = _NODE_REGISTRY["RobotJointDefinition"]({
+        "joint_id": "Shoulder Pan",
+        "display_name": "Shoulder pan",
+        "servo_id": 1,
+        "min_deg": -90.0,
+        "max_deg": 90.0,
+    })["joint"]
+    gripper = _NODE_REGISTRY["RobotJointDefinition"]({
+        "joint_id": "gripper",
+        "display_name": "Gripper",
+        "servo_id": 6,
+        "min_deg": -10.0,
+        "max_deg": 60.0,
+        "invert": True,
+    })["joint"]
+    joints = _NODE_REGISTRY["RobotJointList"]({"joint_1": shoulder, "joint_2": gripper})["joints"]
+    definition = _NODE_REGISTRY["RobotDefinition"]({
+        "profile_id": "My Custom Arm",
+        "display_name": "My Custom Arm",
+        "joints": joints,
+        "transport": "rosbridge",
+    })
+
+    assert definition["valid"] is True
+    assert definition["profile"]["id"] == "my_custom_arm"
+    assert [joint["id"] for joint in definition["profile"]["joints"]] == ["shoulder_pan", "gripper"]
+    assert "--invert \"gripper\"" in definition["driver"]["command_template"]
+
+    saved = _NODE_REGISTRY["RobotProfileSave"]({"profile": definition["profile"]})
+    assert saved["saved"] is True
+    assert (tmp_path / "robots" / "my_custom_arm" / "profile.json").exists()
+
+    loaded = _NODE_REGISTRY["RobotProfileLoad"]({"profile_id": "my_custom_arm"})
+    assert loaded["found"] is True
+    assert loaded["profile"]["display_name"] == "My Custom Arm"
+    assert len(loaded["driver"]["joints"]) == 2
+
+    listed = _NODE_REGISTRY["RobotProfileList"]({})
+    assert {item["id"] for item in listed["profiles"]} == {"so_arm101", "my_custom_arm"}
+
+
+def test_profile_duplicate_turns_builtin_into_editable_local_robot(monkeypatch, tmp_path):
+    monkeypatch.setenv("BLACKNODE_ROBOTS_DIR", str(tmp_path / "robots"))
+
+    result = _NODE_REGISTRY["RobotProfileDuplicate"]({
+        "source_profile_id": "so_arm101",
+        "new_profile_id": "workbench arm",
+        "display_name": "Workbench Arm",
+    })
+
+    assert result["saved"] is True
+    assert result["profile"]["id"] == "workbench_arm"
+    assert result["profile"]["display_name"] == "Workbench Arm"
+    assert len(result["profile"]["joints"]) == 6
+    assert (tmp_path / "robots" / "workbench_arm" / "profile.json").exists()
+
+
+def test_profile_load_uses_nested_discovery_hardware_identity(monkeypatch, tmp_path):
+    monkeypatch.setenv("BLACKNODE_ROBOTS_DIR", str(tmp_path / "robots"))
+    profile = profile_nodes.builtin_profile("so_arm101")
+    profile["id"] = "nested_hardware_arm"
+    _NODE_REGISTRY["RobotProfileSave"]({"profile": profile})
+    calibration_path = (
+        tmp_path / "robots" / "nested_hardware_arm" / "calibrations" / "serial_42.json"
+    )
+    calibration_path.parent.mkdir(parents=True)
+    calibration_path.write_text(json.dumps({
+        "profile_id": "nested_hardware_arm",
+        "hardware_id": "SERIAL-42",
+        "joints": {"shoulder_pan": {"home_ticks": 2200}},
+    }), encoding="utf-8")
+
+    loaded = _NODE_REGISTRY["RobotProfileLoad"]({
+        "profile_id": "nested_hardware_arm",
+        "hardware": {"recommended": {"serial": "SERIAL-42", "path": "COM3"}},
+    })
+
+    assert loaded["driver"]["hardware_id"] == "SERIAL-42"
+    assert loaded["driver"]["joints"][0]["home_ticks"] == 2200
+
+
+def test_calibration_records_extrema_home_margin_and_device_file(monkeypatch, tmp_path):
+    monkeypatch.setenv("BLACKNODE_ROBOTS_DIR", str(tmp_path / "robots"))
+    profile = profile_nodes.builtin_profile("so_arm101")
+    profile["id"] = "calibration_arm"
+    profile["joints"] = profile["joints"][:2]
+    run_id = "test_calibration"
+    profile_nodes.stop_calibration_services()
+
+    started = _NODE_REGISTRY["RobotCalibrationRecorder"]({
+        "action": "start",
+        "run_id": run_id,
+        "profile": profile,
+        "hardware_id": "USB ABC-123",
+        "pose": {"shoulder_pan": 0.0, "shoulder_lift": 0.0},
+        "torque_enabled": False,
+        "safety_margin_deg": 2.0,
+    })
+    assert started["active"] is True
+
+    for pose in (
+        {"shoulder_pan": -20.0, "shoulder_lift": -30.0},
+        {"shoulder_pan": 40.0, "shoulder_lift": 50.0},
+    ):
+        _NODE_REGISTRY["RobotCalibrationRecorder"]({
+            "action": "_sample",
+            "run_id": run_id,
+            "pose": pose,
+            "torque_enabled": False,
+        })
+    home = _NODE_REGISTRY["RobotCalibrationRecorder"]({
+        "action": "capture_home",
+        "run_id": run_id,
+        "pose": {"shoulder_pan": 5.0, "shoulder_lift": 10.0},
+        "torque_enabled": False,
+    })
+    assert home["home"] == {"shoulder_pan": 5.0, "shoulder_lift": 10.0}
+
+    finished = _NODE_REGISTRY["RobotCalibrationRecorder"]({"action": "finish", "run_id": run_id})
+    assert finished["saved"] is True
+    assert finished["active"] is False
+    path = tmp_path / "robots" / "calibration_arm" / "calibrations" / "usb_abc_123.json"
+    assert path.exists()
+    shoulder = finished["calibration"]["joints"]["shoulder_pan"]
+    assert shoulder["observed_min_deg"] == -25.0
+    assert shoulder["observed_max_deg"] == 35.0
+    assert shoulder["safe_min_deg"] == -23.0
+    assert shoulder["safe_max_deg"] == 33.0
+    assert shoulder["home_ticks"] > 2048
+
+    loaded = _NODE_REGISTRY["RobotProfileLoad"]({
+        "profile_id": "calibration_arm",
+        "hardware_id": "USB ABC-123",
+    })
+    assert loaded["found"] is True
+    assert loaded["calibration"]["hardware_id"] == "USB ABC-123"
+    assert loaded["driver"]["joints"][0]["safe_min_deg"] == -23.0
+
+
+def test_calibration_refuses_to_record_with_torque_enabled(monkeypatch, tmp_path):
+    monkeypatch.setenv("BLACKNODE_ROBOTS_DIR", str(tmp_path / "robots"))
+    profile_nodes.stop_calibration_services()
+
+    result = _NODE_REGISTRY["RobotCalibrationRecorder"]({
+        "action": "start",
+        "profile": profile_nodes.builtin_profile("so_arm101"),
+        "hardware_id": "robot-1",
+        "torque_enabled": True,
+    })
+
+    assert result["active"] is False
+    assert "torque is on" in result["report"]
+
+
+def test_custom_robot_templates_validate():
+    templates = Path(__file__).resolve().parents[1] / "templates"
+    for name in ("editable-so-arm101-profile.json", "robot-guided-calibration.json"):
+        workflow = json.loads((templates / name).read_text(encoding="utf-8"))
+        report = validate_workflow(workflow)
+        assert report.ok, (name, [issue.message for issue in report.issues])

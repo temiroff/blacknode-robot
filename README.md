@@ -7,7 +7,7 @@
 This is a Blacknode **extension package** — it does not run on its own. It
 plugs robot hardware setup into the Blacknode visual workflow editor: find USB
 serial robot devices, fix Linux serial permissions, launch and stop a driver
-process, and emit one standard robot profile for downstream control nodes —
+process, and emit reusable robot profiles for downstream control nodes —
 drivable from workflows or AI agents over MCP.
 
 This package owns the user-facing robot abstraction:
@@ -16,7 +16,7 @@ This package owns the user-facing robot abstraction:
 - explain Linux serial permissions
 - describe how a robot driver should start
 - start/stop a driver process
-- emit one standard robot profile for downstream control nodes
+- build, save, duplicate, load, and calibrate reusable robot profiles
 
 It intentionally does not know every robot protocol. Robot-specific packages
 provide driver descriptors and hardware bridges. Transport packages such as
@@ -30,6 +30,14 @@ driver.
 | `RobotUSBDiscovery` | Finds `/dev/serial/by-id/*`, `/dev/ttyACM*`, `/dev/ttyUSB*` and reports access fixes |
 | `RobotDriverDescriptor` | Declares a driver command template and standard topics |
 | `RobotDriverPreset` | Fills in a driver descriptor for a known, tested robot (currently: SO-ARM101) |
+| `RobotJointDefinition` | Defines one named joint, servo ID, range, zero, and direction |
+| `RobotJointList` | Combines up to 16 joint definitions into one ordered list |
+| `RobotDefinition` | Builds a reusable robot profile and driver contract visually |
+| `RobotProfileSave` | Saves a profile under `robots/<profile_id>/profile.json` |
+| `RobotProfileLoad` | Loads a profile and the calibration for a connected hardware ID |
+| `RobotProfileList` | Lists built-in and locally saved profiles |
+| `RobotProfileDuplicate` | Copies a built-in or local profile under a new editable name |
+| `RobotCalibrationRecorder` | Safely records released-arm limits and a home pose for one physical robot |
 | `RobotDriverLauncher` | Starts/stops a driver process from the descriptor |
 | `RobotDiscovery` | Runs the generic setup path and outputs a robot profile |
 | `RobotConnectionDashboard` | Shows USB, driver, ROS interface, and live joint-state readiness on one demo screen |
@@ -70,11 +78,60 @@ including a `command_template` that points at a bundled driver script in
 `drivers/`. Wire its `driver` output straight into `RobotDiscovery` (or
 `RobotDriverLauncher`) — no manual command template required.
 
-Supporting a new robot is additive: one more entry in the preset table
-(`nodes/presets.py`), and — only if it's a new wire protocol, not just a new
-arm — one more `<protocol>_bus_driver.py` script in `drivers/`. Everything
-else (USB discovery, launch/stop, and the ROS 2 `JointState` contract) is
-already generic.
+The curated SO-ARM101 preset uses the same profile schema as a visual custom
+robot. Supporting another arm on the bundled Feetech protocol normally means
+assembling joint nodes and saving a profile; it does not require changing
+Python. Only a genuinely new wire protocol needs another bus driver.
+
+## Custom Robot Profiles
+
+Open **Editable SO-ARM101 Profile** as a working example. Each
+`RobotJointDefinition` names a stable joint and sets its servo ID, provisional
+range, center tick, and direction. `RobotJointList` preserves their order;
+`RobotDefinition` creates the profile; and `RobotProfileSave` makes it reusable.
+
+To reuse the same mechanical definition under another identity, use
+`RobotProfileDuplicate` with `source_profile_id=so_arm101` and choose a new ID.
+For structural changes, copy the **Editable SO-ARM101 Profile** workflow and
+edit its visible joint nodes before saving. Profile and joint IDs normalize to lowercase
+`snake_case`, limited to 64 characters, and must be unique. Display names are
+free-form and can change without breaking workflows.
+
+Local robot data is deliberately separate from the package source:
+
+```text
+robots/
+  my_robot/
+    profile.json
+    calibrations/
+      usb_serial_or_device_id.json
+```
+
+Set `BLACKNODE_ROBOTS_DIR` to move this library elsewhere. The default
+`robots/` directory is ignored by Git because calibrations describe a specific
+physical assembly. Copy or version it deliberately when sharing a machine
+configuration.
+
+### Guided Calibration
+
+Open **Robot Guided Calibration** after saving a profile:
+
+1. Load the profile and start discovery with the robot connected.
+2. Press **Release + live pose** on Manual Move and physically support the arm.
+3. Confirm live joint values are changing, then press **Start recording**.
+4. Slowly move every joint through the safe physical range you intend to use.
+   Do not force a hard stop.
+5. Put the robot in the pose that should read as zero and press **Capture Home**.
+6. Press **Save calibration**. The recorder applies the configured safety
+   margin inside the observed extrema and saves it under the hardware ID.
+7. Press **Hold position** only while the arm is supported and the workspace is
+   clear.
+
+Recording never commands movement. It refuses to start while torque is on, and
+it will not save until every configured joint has been observed and a home pose
+has been captured. `RobotProfileLoad` automatically applies the matching
+device calibration when given the discovery hardware output; another physical
+robot with the same profile keeps a separate calibration.
 
 ### SO-ARM101 (`preset: so_arm101`)
 
@@ -109,17 +166,17 @@ pip install -r packages/blacknode-robot/requirements.txt   # servo SDK + roslibp
 ### Manual Move + Live Pose
 
 The motion-test template includes `ROS2ManualMove` between connection status and
-motion. Its safe default is `action=check`, which changes no torque state and
+motion. Its safe default is **Monitor only**, which changes no torque state and
 starts an explicitly labeled live pose monitor.
 
-- Set `action=release` and run once to disable servo torque while the driver keeps
-  publishing joint positions. Support the arm before entering; it may go limp.
+- Press **Release + live pose** to disable servo torque while the driver keeps
+  publishing joint positions. Support the arm before pressing it; it may go limp.
 - Move the supported arm by hand. The Teach node's unconnected dashboard output
   refreshes from the runtime monitor and shows the latest pose.
-- Set `action=hold` and run once to hold again. The driver reads every servo and
+- Press **Hold position** to hold again. The driver reads every servo and
   writes those exact positions as goals before enabling torque. Motion is
-  blocked during the release/hold run; set `action=check` before commanding a
-  joint.
+  blocked during the transition. The selected button and dashboard report the
+  actual current mode rather than only the last requested action.
 - **Stop all** remains the emergency-safe shutdown: it stops the driver and
   disables torque, so live state publishing also stops.
 
@@ -156,17 +213,17 @@ starts an explicitly labeled live pose monitor.
   triggers the torque-off-on-exit shutdown above. Before this was wired in,
   "Stop all" only stopped camera/tracking/reasoning stream helpers and left
   the robot driver (and torque) running silently in the background.
-- **Joint limits are placeholders.** The `min_deg`/`max_deg` sweep baked into
-  the `so_arm101` preset (`nodes/presets.py`) is a starting range, not a
-  verified safe envelope for your specific arm. Confirm it physically —
-  slowly, with `armed=true` and small deltas — before trusting it, and narrow
-  it in `nodes/presets.py` if needed.
-- **Calibration escape hatch.** `feetech_bus_driver.py` assumes each servo's
+- **Joint limits are placeholders until calibrated.** The `min_deg`/`max_deg`
+  values in the SO-ARM101 base profile are not a verified safe envelope for
+  your assembly. Use **Robot Guided Calibration** with torque released to
+  record intended physical ranges and a safety margin before commanding broad
+  motion. Never discover limits by driving an armed joint into its hard stop.
+- **Calibration details.** `feetech_bus_driver.py` initially assumes each servo's
   raw center tick (2048 of 4095) is that joint's mechanical zero and that
-  none of the joints are mirror-mounted. Real arms often aren't that clean
-  after assembly. Use `--home-ticks "name:ticks,..."` to override a joint's
-  true zero and `--invert "name,name"` to flip a joint's sign — both are
-  plumbed through `command_template` if you need to customize a preset.
+  none of the joints are mirror-mounted. Saved profiles carry direction and
+  center information, while device calibrations supply measured home ticks and
+  safe ranges automatically. The `--home-ticks` and `--invert` CLI flags remain
+  available as advanced driver-level overrides.
 - **Verify the control-table addresses before ever writing.** Run
   `python packages/blacknode-robot/drivers/feetech_bus_driver.py --dry-run
   --port <serial_port> --joints "<name:id:min:max,...>"` first: it only reads

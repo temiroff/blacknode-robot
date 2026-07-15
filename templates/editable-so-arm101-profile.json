@@ -1,0 +1,88 @@
+{
+  "kind": "blacknode.workflow",
+  "schema_version": 1,
+  "name": "Editable SO-ARM101 Robot Profile",
+  "saved_at": "2026-07-15T00:00:00",
+  "entrypoint": {"node_id": "out", "port": "value"},
+  "metadata": {
+    "template": true,
+    "description": "SO-ARM101 assembled entirely from editable joint and robot-definition nodes. Rename it, change servo ids, limits, direction, transport, or driver settings, then save it as a reusable local robot profile.",
+    "color": "#14b8a6",
+    "required_packages": ["blacknode-robot"]
+  },
+  "node_meta": {
+    "shoulder_pan": {
+      "id": "shoulder_pan", "type": "RobotJointDefinition", "pos": [40, 40],
+      "params": {"joint_id": "shoulder_pan", "display_name": "Shoulder pan", "servo_id": 1, "min_deg": -100.0, "max_deg": 100.0, "home_ticks": 2048, "invert": false, "velocity_limit": 0.0, "torque_limit": 0.0},
+      "inputs": ["joint_id", "display_name", "servo_id", "min_deg", "max_deg", "home_ticks", "invert", "velocity_limit", "torque_limit"], "outputs": ["joint", "report"],
+      "input_types": {"joint_id": "Text", "display_name": "Text", "servo_id": "Int", "min_deg": "Float", "max_deg": "Float", "home_ticks": "Int", "invert": "Bool", "velocity_limit": "Float", "torque_limit": "Float"}, "output_types": {"joint": "Dict", "report": "Text"}, "input_defaults": {"joint_id": "joint", "display_name": "Joint", "servo_id": 1, "min_deg": -90.0, "max_deg": 90.0, "home_ticks": 2048, "invert": false, "velocity_limit": 0.0, "torque_limit": 0.0}
+    },
+    "shoulder_lift": {
+      "id": "shoulder_lift", "type": "RobotJointDefinition", "pos": [40, 250],
+      "params": {"joint_id": "shoulder_lift", "display_name": "Shoulder lift", "servo_id": 2, "min_deg": -100.0, "max_deg": 100.0, "home_ticks": 2048, "invert": false, "velocity_limit": 0.0, "torque_limit": 0.0},
+      "inputs": ["joint_id", "display_name", "servo_id", "min_deg", "max_deg", "home_ticks", "invert", "velocity_limit", "torque_limit"], "outputs": ["joint", "report"],
+      "input_types": {"joint_id": "Text", "display_name": "Text", "servo_id": "Int", "min_deg": "Float", "max_deg": "Float", "home_ticks": "Int", "invert": "Bool", "velocity_limit": "Float", "torque_limit": "Float"}, "output_types": {"joint": "Dict", "report": "Text"}, "input_defaults": {"joint_id": "joint", "display_name": "Joint", "servo_id": 1, "min_deg": -90.0, "max_deg": 90.0, "home_ticks": 2048, "invert": false, "velocity_limit": 0.0, "torque_limit": 0.0}
+    },
+    "elbow_flex": {
+      "id": "elbow_flex", "type": "RobotJointDefinition", "pos": [40, 460],
+      "params": {"joint_id": "elbow_flex", "display_name": "Elbow flex", "servo_id": 3, "min_deg": -100.0, "max_deg": 100.0, "home_ticks": 2048, "invert": false, "velocity_limit": 0.0, "torque_limit": 0.0},
+      "inputs": ["joint_id", "display_name", "servo_id", "min_deg", "max_deg", "home_ticks", "invert", "velocity_limit", "torque_limit"], "outputs": ["joint", "report"],
+      "input_types": {"joint_id": "Text", "display_name": "Text", "servo_id": "Int", "min_deg": "Float", "max_deg": "Float", "home_ticks": "Int", "invert": "Bool", "velocity_limit": "Float", "torque_limit": "Float"}, "output_types": {"joint": "Dict", "report": "Text"}, "input_defaults": {"joint_id": "joint", "display_name": "Joint", "servo_id": 1, "min_deg": -90.0, "max_deg": 90.0, "home_ticks": 2048, "invert": false, "velocity_limit": 0.0, "torque_limit": 0.0}
+    },
+    "wrist_flex": {
+      "id": "wrist_flex", "type": "RobotJointDefinition", "pos": [400, 40],
+      "params": {"joint_id": "wrist_flex", "display_name": "Wrist flex", "servo_id": 4, "min_deg": -100.0, "max_deg": 100.0, "home_ticks": 2048, "invert": false, "velocity_limit": 0.0, "torque_limit": 0.0},
+      "inputs": ["joint_id", "display_name", "servo_id", "min_deg", "max_deg", "home_ticks", "invert", "velocity_limit", "torque_limit"], "outputs": ["joint", "report"],
+      "input_types": {"joint_id": "Text", "display_name": "Text", "servo_id": "Int", "min_deg": "Float", "max_deg": "Float", "home_ticks": "Int", "invert": "Bool", "velocity_limit": "Float", "torque_limit": "Float"}, "output_types": {"joint": "Dict", "report": "Text"}, "input_defaults": {"joint_id": "joint", "display_name": "Joint", "servo_id": 1, "min_deg": -90.0, "max_deg": 90.0, "home_ticks": 2048, "invert": false, "velocity_limit": 0.0, "torque_limit": 0.0}
+    },
+    "wrist_roll": {
+      "id": "wrist_roll", "type": "RobotJointDefinition", "pos": [400, 250],
+      "params": {"joint_id": "wrist_roll", "display_name": "Wrist roll", "servo_id": 5, "min_deg": -150.0, "max_deg": 150.0, "home_ticks": 2048, "invert": false, "velocity_limit": 0.0, "torque_limit": 0.0},
+      "inputs": ["joint_id", "display_name", "servo_id", "min_deg", "max_deg", "home_ticks", "invert", "velocity_limit", "torque_limit"], "outputs": ["joint", "report"],
+      "input_types": {"joint_id": "Text", "display_name": "Text", "servo_id": "Int", "min_deg": "Float", "max_deg": "Float", "home_ticks": "Int", "invert": "Bool", "velocity_limit": "Float", "torque_limit": "Float"}, "output_types": {"joint": "Dict", "report": "Text"}, "input_defaults": {"joint_id": "joint", "display_name": "Joint", "servo_id": 1, "min_deg": -90.0, "max_deg": 90.0, "home_ticks": 2048, "invert": false, "velocity_limit": 0.0, "torque_limit": 0.0}
+    },
+    "gripper": {
+      "id": "gripper", "type": "RobotJointDefinition", "pos": [400, 460],
+      "params": {"joint_id": "gripper", "display_name": "Gripper", "servo_id": 6, "min_deg": -10.0, "max_deg": 90.0, "home_ticks": 2048, "invert": false, "velocity_limit": 0.0, "torque_limit": 0.0},
+      "inputs": ["joint_id", "display_name", "servo_id", "min_deg", "max_deg", "home_ticks", "invert", "velocity_limit", "torque_limit"], "outputs": ["joint", "report"],
+      "input_types": {"joint_id": "Text", "display_name": "Text", "servo_id": "Int", "min_deg": "Float", "max_deg": "Float", "home_ticks": "Int", "invert": "Bool", "velocity_limit": "Float", "torque_limit": "Float"}, "output_types": {"joint": "Dict", "report": "Text"}, "input_defaults": {"joint_id": "joint", "display_name": "Joint", "servo_id": 1, "min_deg": -90.0, "max_deg": 90.0, "home_ticks": 2048, "invert": false, "velocity_limit": 0.0, "torque_limit": 0.0}
+    },
+    "joints": {
+      "id": "joints", "type": "RobotJointList", "pos": [790, 190], "params": {},
+      "inputs": ["joint_1", "joint_2", "joint_3", "joint_4", "joint_5", "joint_6", "joint_7", "joint_8", "joint_9", "joint_10", "joint_11", "joint_12", "joint_13", "joint_14", "joint_15", "joint_16"], "outputs": ["joints", "count", "report"],
+      "input_types": {"joint_1": "Dict", "joint_2": "Dict", "joint_3": "Dict", "joint_4": "Dict", "joint_5": "Dict", "joint_6": "Dict", "joint_7": "Dict", "joint_8": "Dict", "joint_9": "Dict", "joint_10": "Dict", "joint_11": "Dict", "joint_12": "Dict", "joint_13": "Dict", "joint_14": "Dict", "joint_15": "Dict", "joint_16": "Dict"}, "output_types": {"joints": "List", "count": "Int", "report": "Text"}, "input_defaults": {}
+    },
+    "definition": {
+      "id": "definition", "type": "RobotDefinition", "pos": [1160, 150],
+      "params": {
+        "profile_id": "my_so_arm101", "display_name": "My SO-ARM101", "protocol": "feetech",
+        "driver_script": "feetech_bus_driver.py", "command_template": "", "baudrate": 1000000,
+        "vendor_id": "1a86", "product_id": "55d3", "transport": "auto", "host": "127.0.0.1", "port": 9090,
+        "state_topic": "/joint_states", "command_topic": "/joint_commands", "config_topic": "/joint_config",
+        "control_topic": "/robot_control", "rate_hz": 15.0, "units": "degrees"
+      },
+      "inputs": ["profile_id", "display_name", "protocol", "driver_script", "command_template", "baudrate", "joints", "vendor_id", "product_id", "transport", "host", "port", "state_topic", "command_topic", "config_topic", "control_topic", "rate_hz", "units"], "outputs": ["valid", "profile", "driver", "report"],
+      "input_types": {"profile_id": "Text", "display_name": "Text", "protocol": "Text", "driver_script": "Text", "command_template": "Text", "baudrate": "Int", "joints": "List", "vendor_id": "Text", "product_id": "Text", "transport": "Text", "host": "Text", "port": "Int", "state_topic": "Text", "command_topic": "Text", "config_topic": "Text", "control_topic": "Text", "rate_hz": "Float", "units": "Text"}, "output_types": {"valid": "Bool", "profile": "Dict", "driver": "Dict", "report": "Text"},
+      "input_defaults": {"profile_id": "my_robot", "display_name": "My Robot", "protocol": "feetech", "driver_script": "feetech_bus_driver.py", "command_template": "", "baudrate": 1000000, "vendor_id": "", "product_id": "", "transport": "auto", "host": "127.0.0.1", "port": 9090, "state_topic": "/joint_states", "command_topic": "/joint_commands", "config_topic": "/joint_config", "control_topic": "/robot_control", "rate_hz": 15.0, "units": "degrees"}
+    },
+    "save": {
+      "id": "save", "type": "RobotProfileSave", "pos": [1570, 190], "params": {"overwrite": false},
+      "inputs": ["profile", "overwrite"], "outputs": ["saved", "profile", "driver", "path", "report"], "input_types": {"profile": "Dict", "overwrite": "Bool"}, "output_types": {"saved": "Bool", "profile": "Dict", "driver": "Dict", "path": "Text", "report": "Text"}, "input_defaults": {"overwrite": false}
+    },
+    "out": {
+      "id": "out", "type": "Output", "pos": [1940, 210], "params": {"label": "Saved custom robot profile"},
+      "inputs": ["value"], "outputs": [], "input_types": {"value": "Any"}, "output_types": {}, "input_defaults": {}
+    }
+  },
+  "edges": [
+    {"from": "shoulder_pan", "from_port": "joint", "to": "joints", "to_port": "joint_1"},
+    {"from": "shoulder_lift", "from_port": "joint", "to": "joints", "to_port": "joint_2"},
+    {"from": "elbow_flex", "from_port": "joint", "to": "joints", "to_port": "joint_3"},
+    {"from": "wrist_flex", "from_port": "joint", "to": "joints", "to_port": "joint_4"},
+    {"from": "wrist_roll", "from_port": "joint", "to": "joints", "to_port": "joint_5"},
+    {"from": "gripper", "from_port": "joint", "to": "joints", "to_port": "joint_6"},
+    {"from": "joints", "from_port": "joints", "to": "definition", "to_port": "joints"},
+    {"from": "definition", "from_port": "profile", "to": "save", "to_port": "profile"},
+    {"from": "save", "from_port": "report", "to": "out", "to_port": "value"}
+  ]
+}
