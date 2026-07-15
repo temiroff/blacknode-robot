@@ -7,6 +7,7 @@ from pathlib import Path
 import blacknode  # noqa: F401
 from blacknode.node import _NODE_REGISTRY
 from blacknode.pkg.blacknode_robot import presets as presets_module
+from blacknode.pkg.blacknode_robot import profiles as profiles_module
 
 _DRIVER_PATH = Path(presets_module.__file__).resolve().parents[1] / "drivers" / "feetech_bus_driver.py"
 
@@ -30,7 +31,7 @@ def test_robot_driver_preset_registered():
 
 
 def test_robot_driver_preset_so_arm101_shape(monkeypatch):
-    monkeypatch.setattr(presets_module.importlib.util, "find_spec", lambda name: object() if name == "rclpy" else None)
+    monkeypatch.setattr(profiles_module.importlib.util, "find_spec", lambda name: object() if name == "rclpy" else None)
     result = _NODE_REGISTRY["RobotDriverPreset"]({"preset": "so_arm101"})
     driver = result["driver"]
 
@@ -74,7 +75,7 @@ def test_robot_driver_preset_rosbridge_transport():
 
 
 def test_robot_driver_preset_auto_falls_back_to_rosbridge_without_rclpy(monkeypatch):
-    monkeypatch.setattr(presets_module.importlib.util, "find_spec", lambda name: None)
+    monkeypatch.setattr(profiles_module.importlib.util, "find_spec", lambda name: None)
 
     result = _NODE_REGISTRY["RobotDriverPreset"]({"preset": "so_arm101"})
 

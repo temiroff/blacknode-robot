@@ -462,12 +462,24 @@ def runtime_status() -> dict[str, Any]:
             live_runs.append({"run_id": run_id, "pid": proc.pid})
         else:
             _managed_drivers.pop(run_id, None)
+    try:
+        from .profiles import calibration_runtime_status
+
+        calibration = calibration_runtime_status()
+    except Exception:
+        calibration = {"sessions": [], "active": False}
+    calibration_runs = [
+        {"run_id": item["run_id"], "kind": "robot_calibration"}
+        for item in calibration.get("sessions", [])
+        if item.get("active")
+    ]
     return {
         "ok": True,
-        "managed_runs": live_runs,
+        "managed_runs": live_runs + calibration_runs,
         "recent_exits": list(_last_driver_exits.values()),
+        "calibrations": calibration.get("sessions", []),
         "detached_count": 0,
-        "active": bool(live_runs),
+        "active": bool(live_runs or calibration_runs),
     }
 
 
@@ -484,11 +496,17 @@ def stop_runtime_services() -> dict[str, Any]:
     stopped = 0
     for run_id in list(_managed_drivers):
         stopped += _stop_driver(run_id)
+    try:
+        from .profiles import stop_calibration_services
+
+        stopped_calibrations = stop_calibration_services()
+    except Exception:
+        stopped_calibrations = 0
     return {
         "ok": True,
         "active_before": status_before,
-        "stopped": {"managed_runs": stopped},
-        "report": f"stopped {stopped} robot driver process(es)",
+        "stopped": {"managed_runs": stopped, "calibrations": stopped_calibrations},
+        "report": f"stopped {stopped} robot driver process(es) and {stopped_calibrations} calibration session(s)",
     }
 
 
