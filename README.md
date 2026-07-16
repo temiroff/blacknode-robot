@@ -40,7 +40,7 @@ driver.
 | `RobotCalibrationRecorder` | Safely records released-arm limits and a home pose for one physical robot |
 | `RobotDriverLauncher` | Starts/stops a driver process from the descriptor |
 | `RobotDiscovery` | Runs the generic setup path and outputs a robot profile |
-| `RobotConnectionDashboard` | Shows USB, driver, ROS interface, live joint positions, home references, safe ranges, and calibration source on one demo screen |
+| `RobotConnectionDashboard` | Shows USB, driver, ROS interface, live joint positions, home references, safe ranges, and calibration source in one view |
 
 Changing the generic `Robot.profile_id` invalidates the old dashboard. Press
 **Run** to apply it: if its generated driver command differs, Blacknode safely
@@ -52,7 +52,7 @@ The **SO-ARM101 Leader Follower** template runs two `Robot` selectors with
 separate USB serial filters, driver run IDs, and `/leader` and `/follower` ROS
 topic prefixes. It releases only the leader, starts the follower controller in
 disarmed preview, and requires saved calibration for both physical devices.
-Its showcase configuration matches LeRobot teleoperation: `tracking_mode=direct`
+Its default configuration matches LeRobot teleoperation: `tracking_mode=direct`
 at 60 Hz with no deadband or relative step limiter. The Feetech driver batches
 all joint reads and all goal writes into synchronized bus transactions, while
 calibration limits, stale-stream suppression, and explicit arming still apply.
