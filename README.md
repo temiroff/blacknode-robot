@@ -25,6 +25,10 @@ driver.
 
 ## Nodes
 
+Coding agents should read [`AGENTS.md`](AGENTS.md) before changing this package.
+It defines the package boundary, calibration identity contract, motion safety,
+and verification commands.
+
 | Node | What it does |
 |---|---|
 | `RobotUSBDiscovery` | Finds Windows `COM*` and Linux USB-serial adapters, exposes copyable `port` and `serial` outputs, and reports access fixes |
