@@ -11,32 +11,17 @@
     "required_packages": ["blacknode-robot", "blacknode-ros2"]
   },
   "node_meta": {
-    "usb": {
-      "id": "usb", "type": "RobotUSBDiscovery", "pos": [40, 170],
-      "params": {"port_filter": "", "match_vendor_id": "", "match_product_id": "", "probe_open": false},
-      "inputs": ["refresh", "port_filter", "match_vendor_id", "match_product_id", "probe_open"], "outputs": ["found", "ready", "devices", "recommended", "permissions", "report"],
-      "input_types": {"refresh": "Any", "port_filter": "Text", "match_vendor_id": "Text", "match_product_id": "Text", "probe_open": "Bool"}, "output_types": {"found": "Bool", "ready": "Bool", "devices": "List", "recommended": "Dict", "permissions": "Dict", "report": "Text"},
-      "input_defaults": {"port_filter": "", "match_vendor_id": "", "match_product_id": "", "probe_open": false}
-    },
-    "profile": {
-      "id": "profile", "type": "Robot", "pos": [400, 170],
-      "params": {"profile_id": "so_arm101"},
-      "inputs": ["profile_id", "hardware"], "outputs": ["found", "profile", "driver", "calibration", "path", "report"],
-      "input_types": {"profile_id": "Text", "hardware": "Dict"}, "output_types": {"found": "Bool", "profile": "Dict", "driver": "Dict", "calibration": "Dict", "path": "Text", "report": "Text"}, "input_defaults": {"profile_id": "so_arm101"},
-      "input_choices": {"profile_id": ["so_arm101"]}
-    },
-    "discovery": {
-      "id": "discovery", "type": "RobotDiscovery", "pos": [760, 150],
+    "robot": {
+      "id": "robot", "type": "Robot", "pos": [760, 150],
       "params": {
-        "action": "start", "run_id": "calibration_robot_driver", "port_filter": "", "probe_open": false,
-        "require_usb": true, "serial_port": "", "host": "127.0.0.1", "port": 9090,
+        "profile_id": "so_arm101", "selection": 0, "action": "start", "run_id": "calibration_robot_driver", "host": "127.0.0.1", "port": 9090,
         "state_topic": "/joint_states", "command_topic": "/joint_commands", "config_topic": "/joint_config",
         "control_topic": "/robot_control", "units": "degrees"
       },
-      "inputs": ["trigger", "driver", "action", "run_id", "port_filter", "probe_open", "require_usb", "serial_port", "host", "port", "state_topic", "command_topic", "config_topic", "control_topic", "units"],
-      "outputs": ["found", "ready", "usb_ready", "driver_running", "usb", "driver", "robot", "report"],
-      "input_types": {"trigger": "Any", "driver": "Dict", "action": "Text", "run_id": "Text", "port_filter": "Text", "probe_open": "Bool", "require_usb": "Bool", "serial_port": "Text", "host": "Text", "port": "Int", "state_topic": "Text", "command_topic": "Text", "config_topic": "Text", "control_topic": "Text", "units": "Text"},
-      "output_types": {"found": "Bool", "ready": "Bool", "usb_ready": "Bool", "driver_running": "Bool", "usb": "Dict", "driver": "Dict", "robot": "Dict", "report": "Text"},
+      "inputs": ["trigger", "driver", "hardware", "action", "run_id", "port_filter", "probe_open", "require_usb", "serial_port", "host", "port", "state_topic", "command_topic", "config_topic", "control_topic", "units"],
+      "outputs": ["found", "ready", "usb_ready", "driver_running", "profile", "hardware", "usb", "driver", "robot", "report"],
+      "input_types": {"trigger": "Any", "driver": "Dict", "hardware": "Dict", "action": "Text", "run_id": "Text", "port_filter": "Text", "probe_open": "Bool", "require_usb": "Bool", "serial_port": "Text", "host": "Text", "port": "Int", "state_topic": "Text", "command_topic": "Text", "config_topic": "Text", "control_topic": "Text", "units": "Text"},
+      "output_types": {"found": "Bool", "ready": "Bool", "usb_ready": "Bool", "driver_running": "Bool", "profile": "Dict", "hardware": "Dict", "usb": "Dict", "driver": "Dict", "robot": "Dict", "report": "Text"},
       "input_defaults": {"action": "check", "run_id": "robot_driver", "port_filter": "", "probe_open": false, "require_usb": false, "serial_port": "", "host": "127.0.0.1", "port": 9090, "state_topic": "/joint_states", "command_topic": "/joint_commands", "config_topic": "/joint_config", "control_topic": "/robot_control", "units": "degrees"}
     },
     "status": {
@@ -81,14 +66,11 @@
     }
   },
   "edges": [
-    {"from": "usb", "from_port": "recommended", "to": "profile", "to_port": "hardware"},
-    {"from": "profile", "from_port": "driver", "to": "discovery", "to_port": "driver"},
-    {"from": "profile", "from_port": "report", "to": "discovery", "to_port": "trigger"},
-    {"from": "discovery", "from_port": "report", "to": "status", "to_port": "trigger"},
+    {"from": "robot", "from_port": "report", "to": "status", "to_port": "trigger"},
     {"from": "status", "from_port": "report", "to": "manual", "to_port": "trigger"},
-    {"from": "discovery", "from_port": "robot", "to": "manual", "to_port": "robot"},
-    {"from": "profile", "from_port": "profile", "to": "calibration", "to_port": "profile"},
-    {"from": "usb", "from_port": "recommended", "to": "calibration", "to_port": "hardware"},
+    {"from": "robot", "from_port": "robot", "to": "manual", "to_port": "robot"},
+    {"from": "robot", "from_port": "profile", "to": "calibration", "to_port": "profile"},
+    {"from": "robot", "from_port": "hardware", "to": "calibration", "to_port": "hardware"},
     {"from": "manual", "from_port": "pose", "to": "calibration", "to_port": "pose"},
     {"from": "manual", "from_port": "torque_enabled", "to": "calibration", "to_port": "torque_enabled"},
     {"from": "calibration", "from_port": "report", "to": "out", "to_port": "value"}

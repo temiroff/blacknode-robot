@@ -31,9 +31,8 @@ and verification commands.
 
 | Node | What it does |
 |---|---|
-| `RobotUSBDiscovery` | Finds Windows `COM*` and Linux USB-serial adapters, exposes copyable `port` and `serial` outputs, and reports access fixes |
 | `RobotDriverDescriptor` | Declares a driver command template and standard topics |
-| `Robot` | Selects a built-in or saved robot and applies the connected device's calibration |
+| `Robot` | Selects a robot, automatically finds its connection, applies calibration, and optionally starts its driver |
 | `RobotJointDefinition` | Defines one named joint, servo ID, range, zero, and direction |
 | `RobotJointList` | Combines any number of joint definitions; another socket appears as the list fills |
 | `RobotDefinition` | Builds a reusable robot profile and driver contract visually |
@@ -43,7 +42,6 @@ and verification commands.
 | `RobotProfileDuplicate` | Copies a built-in or local profile under a new editable name |
 | `RobotCalibrationRecorder` | Safely records released-arm limits and a home pose for one physical robot |
 | `RobotDriverLauncher` | Starts/stops a driver process from the descriptor |
-| `RobotDiscovery` | Runs the generic setup path and outputs a robot profile |
 | `RobotConnectionDashboard` | Shows USB, driver, ROS interface, live joint positions, home references, safe ranges, and calibration source in one view |
 
 Changing the generic `Robot.profile_id` invalidates the old dashboard. Press
@@ -52,10 +50,29 @@ stops the prior managed process before starting the selected profile. A
 `PROFILE DEFAULTS` dashboard has no saved calibration for that profile and
 hardware ID.
 
-The **SO-ARM101 Leader Follower** template runs two `Robot` selectors with
-separate USB serial filters, driver run IDs, and `/leader` and `/follower` ROS
-topic prefixes. It releases only the leader, starts the follower controller in
-disarmed preview, and requires saved calibration for both physical devices.
+For one robot, use only `Robot`; it automatically discovers available hardware
+and uses `selection: 0`. Duplicate it and choose `selection: 1` for a second
+robot. If the discovered order is reversed, swap those two indexes. Camera and
+future sensor facades use the same `selection` convention.
+The selected entry's serial number (or port path when no serial is available)
+becomes the robot's `hardware_id`; discovery's index-0 shortcut values never
+override a different selected entry.
+
+The Properties panel keeps transport controls under **Advanced**. They are not
+required for normal setup: `probe_open` actively opens candidate serial ports
+for diagnostics, vendor/product IDs narrow discovery to a USB adapter model,
+and `hardware_filter` pins a node to one stable adapter identity. Stable
+identity is recommended after calibration or for unattended motion so two
+identical robots cannot silently exchange roles. Hidden compatibility nodes
+still provide low-level diagnostics for old workflows, but USB is an
+implementation of a robot connection rather than the public abstraction.
+
+The **SO-ARM101 Leader Follower** template uses robot indexes `0` and `1`,
+separate driver run IDs, and `/leader` and `/follower` ROS topic prefixes. It
+releases only the leader, starts the follower controller in disarmed preview,
+and requires saved calibration for both physical devices. For a permanent
+installation, promote `hardware_filter` from Advanced and bind each role to its
+adapter serial.
 Its default configuration matches LeRobot teleoperation: `tracking_mode=direct`
 at 60 Hz with no deadband or relative step limiter. The Feetech driver batches
 all joint reads and all goal writes into synchronized bus transactions, while
@@ -66,7 +83,7 @@ calibration limits, stale-stream suppression, and explicit arming still apply.
 The generic pipeline is:
 
 ```text
-USB device -> driver descriptor -> driver process -> standard robot profile
+Robot -> discovered connection + calibrated profile + managed driver
 ```
 
 Driver descriptors use `{serial_port}` as the placeholder for the discovered
@@ -91,9 +108,9 @@ verify and use the interface.
 ## Robot Selection and Drivers
 
 Use the generic `Robot` node in new workflows. Its dropdown includes built-in
-and locally saved profiles, and its `driver` output connects directly to
-`RobotDiscovery` or `RobotDriverLauncher`. `RobotDriverPreset` and
-`RobotProfileLoad` remain hidden compatibility aliases for old workflows.
+and locally saved profiles; it discovers the selected connection, applies the
+matching calibration, and checks, starts, or stops the driver itself. The old
+discovery and profile-loader types remain hidden for workflow compatibility.
 
 `RobotDefinition.driver_script` is also a dropdown populated from installed
 `drivers/*_driver.py` files when Blacknode starts. Adding a driver file and
@@ -120,15 +137,12 @@ edit its visible joint nodes before saving. Profile and joint IDs normalize to l
 `snake_case`, limited to 64 characters, and must be unique. Display names are
 free-form and can change without breaking workflows.
 
-Connect `RobotUSBDiscovery.recommended` to `RobotDefinition.hardware`. The
-definition automatically copies the real USB vendor ID and product ID reported
-by the adapter; these are four-digit hexadecimal identifiers assigned to the
-hardware manufacturer/product, not random robot IDs. The manual `vendor_id` and
-`product_id` fields are optional advanced overrides. Saved VID/PID values help
-`RobotDiscovery` reject unrelated serial adapters, while the adapter serial (or
-device path when no serial exists) selects the calibration for one physical
-assembly. Normally users should leave `hardware_id` blank and connect discovery
-to the `hardware` input.
+Connect `Robot.hardware` to `RobotDefinition.hardware`. The definition copies
+the real USB vendor ID and product ID reported internally; these four-digit
+values identify the hardware manufacturer/product and are not random robot IDs.
+Manual `vendor_id` and `product_id` values remain advanced overrides. The
+adapter serial—or its device path when no serial exists—selects the calibration
+for one physical assembly.
 
 Local robot data is deliberately separate from the package source:
 
@@ -190,13 +204,12 @@ rosbridge mode the serial connection remains local to the driver machine.
 pip install -r packages/blacknode-robot/requirements.txt   # servo SDK + roslibpy
 ```
 
-1. Plug in the arm, then run `RobotUSBDiscovery` to confirm its USB-serial
-   adapter is found and accessible (fix any permission issue it reports
-   first). This confirms the adapter is enumerated, not that robot power or
-   servo communication is healthy; use the driver connection state for that.
+1. Plug in the arm, then run `Robot` with `action=check` to confirm its
+   connection is found and accessible. This confirms the adapter is enumerated,
+   not that robot power or servo communication is healthy; use the driver
+   connection state for that.
 2. Load the **SO-ARM101 Motion Test** template
-   (`templates/so-arm101-motion-test.json`): `RobotDriverPreset` (preset
-   `so_arm101`) → `RobotDiscovery` (starts the driver process) →
+   (`templates/so-arm101-motion-test.json`): `Robot` (`so_arm101`, starts the driver) →
    `ROS2Status` → `ROS2JointState` → `ROS2SetJoint`
    (`armed=false` by default) → `ROS2MotionDashboard`.
 3. Press **Run**. With `armed=false` this only proves the pipeline: the
