@@ -45,3 +45,9 @@ Get-ChildItem packages\blacknode-robot\templates\*.json | ForEach-Object { black
 
 Use mocks for routine tests. Report physical calibration, torque, or motion
 paths as untested unless they were deliberately exercised on supported hardware.
+
+## Documentation voice
+
+Describe Blacknode hardware discovery, profiles, calibration, drivers, and safe
+operation directly. Mention external names only for implemented hardware or
+protocol contracts; avoid product comparisons.

@@ -4,8 +4,8 @@
 
 **Generic robot setup nodes for [Blacknode](https://github.com/temiroff/Blacknode).**
 
-This is a Blacknode **extension package** — it does not run on its own. It
-plugs robot hardware setup into the Blacknode visual workflow editor: find USB
+Install this Blacknode **extension package** to add robot hardware setup to the
+visual workflow editor: find USB
 serial robot devices, fix Linux serial permissions, launch and stop a driver
 process, and emit reusable robot profiles for downstream control nodes —
 drivable from workflows or AI agents over MCP.
@@ -18,8 +18,8 @@ This package owns the user-facing robot abstraction:
 - start/stop a driver process
 - build, save, duplicate, load, and calibrate reusable robot profiles
 
-It intentionally does not know every robot protocol. Robot-specific packages
-provide driver descriptors and hardware bridges. Transport packages such as
+Robot-specific packages provide protocol driver descriptors and hardware
+bridges. Transport packages such as
 `blacknode-ros2` verify and control the standard interface exposed by the
 driver.
 
@@ -73,8 +73,8 @@ releases only the leader, starts the follower controller in disarmed preview,
 and requires saved calibration for both physical devices. For a permanent
 installation, promote `hardware_filter` from Advanced and bind each role to its
 adapter serial.
-Its default configuration matches LeRobot teleoperation: `tracking_mode=direct`
-at 60 Hz with no deadband or relative step limiter. The Feetech driver batches
+Its default configuration uses `tracking_mode=direct` at 60 Hz with no
+deadband or relative step limiter. The Feetech driver batches
 all joint reads and all goal writes into synchronized bus transactions, while
 calibration limits, stale-stream suppression, and explicit arming still apply.
 
@@ -289,3 +289,7 @@ starts an explicitly labeled live pose monitor.
   with a plausible tick (0-4095) before trusting the driver with real writes.
 
 Keep a physical power cutoff within reach and clear the workspace before arming.
+
+## License
+
+Apache-2.0, same as Blacknode.
