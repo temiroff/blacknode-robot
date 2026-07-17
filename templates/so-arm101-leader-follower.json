@@ -6,29 +6,11 @@
   "entrypoint": {"node_id": "out", "port": "value"},
   "metadata": {
     "template": true,
-    "description": "Directly control a calibrated follower arm by moving a separate torque-released leader arm. Uses distinct USB identities, driver run IDs, and ROS topic namespaces; starts in disarmed preview mode.",
+    "description": "Directly control robot index 1 from torque-released robot index 0. Each physical arm uses one Robot node; teleoperation starts in disarmed preview mode.",
     "color": "#14b8a6",
     "required_packages": ["blacknode-robot", "blacknode-ros2"]
   },
   "node_meta": {
-    "leader_usb": {
-      "id": "leader_usb", "type": "RobotUSBDiscovery", "pos": [40, 80],
-      "params": {"port_filter": "SET_LEADER_USB_SERIAL", "match_vendor_id": "", "match_product_id": "", "probe_open": false},
-      "inputs": ["refresh", "port_filter", "match_vendor_id", "match_product_id", "probe_open"],
-      "outputs": ["found", "ready", "devices", "recommended", "usb", "permissions", "report"],
-      "input_types": {"refresh": "Any", "port_filter": "Text", "match_vendor_id": "Text", "match_product_id": "Text", "probe_open": "Bool"},
-      "output_types": {"found": "Bool", "ready": "Bool", "devices": "List", "recommended": "Dict", "usb": "Dict", "permissions": "Dict", "report": "Text"},
-      "input_defaults": {"port_filter": "SET_LEADER_USB_SERIAL", "match_vendor_id": "", "match_product_id": "", "probe_open": false}
-    },
-    "follower_usb": {
-      "id": "follower_usb", "type": "RobotUSBDiscovery", "pos": [40, 500],
-      "params": {"port_filter": "SET_FOLLOWER_USB_SERIAL", "match_vendor_id": "", "match_product_id": "", "probe_open": false},
-      "inputs": ["refresh", "port_filter", "match_vendor_id", "match_product_id", "probe_open"],
-      "outputs": ["found", "ready", "devices", "recommended", "usb", "permissions", "report"],
-      "input_types": {"refresh": "Any", "port_filter": "Text", "match_vendor_id": "Text", "match_product_id": "Text", "probe_open": "Bool"},
-      "output_types": {"found": "Bool", "ready": "Bool", "devices": "List", "recommended": "Dict", "usb": "Dict", "permissions": "Dict", "report": "Text"},
-      "input_defaults": {"port_filter": "SET_FOLLOWER_USB_SERIAL", "match_vendor_id": "", "match_product_id": "", "probe_open": false}
-    },
     "rosbridge": {
       "id": "rosbridge", "type": "ROS2Status", "pos": [420, 40],
       "params": {"transport": "rosbridge", "ensure_rosbridge": true, "host": "127.0.0.1", "port": 9090, "state_topic": "/leader/joint_states", "command_topic": "/follower/joint_commands", "config_topic": "/follower/joint_config", "timeout": 5.0},
@@ -39,29 +21,9 @@
       "input_defaults": {"transport": "rosbridge", "ensure_rosbridge": true, "host": "127.0.0.1", "port": 9090, "state_topic": "/leader/joint_states", "command_topic": "/follower/joint_commands", "config_topic": "/follower/joint_config", "timeout": 5.0},
       "input_choices": {"transport": ["auto", "native", "rosbridge"]}
     },
-    "leader_profile": {
-      "id": "leader_profile", "type": "Robot", "pos": [420, 200],
-      "params": {"profile_id": "so_arm101", "topic_prefix": "/leader", "rate_hz": 60.0},
-      "inputs": ["profile_id", "hardware", "topic_prefix", "rate_hz"],
-      "outputs": ["found", "profile", "driver", "calibration", "path", "report"],
-      "input_types": {"profile_id": "Text", "hardware": "Dict", "topic_prefix": "Text", "rate_hz": "Float"},
-      "output_types": {"found": "Bool", "profile": "Dict", "driver": "Dict", "calibration": "Dict", "path": "Text", "report": "Text"},
-      "input_defaults": {"profile_id": "so_arm101", "topic_prefix": "/leader", "rate_hz": 0.0},
-      "input_choices": {"profile_id": ["so_arm101"]}
-    },
-    "follower_profile": {
-      "id": "follower_profile", "type": "Robot", "pos": [420, 620],
-      "params": {"profile_id": "so_arm101", "topic_prefix": "/follower", "rate_hz": 60.0},
-      "inputs": ["profile_id", "hardware", "topic_prefix", "rate_hz"],
-      "outputs": ["found", "profile", "driver", "calibration", "path", "report"],
-      "input_types": {"profile_id": "Text", "hardware": "Dict", "topic_prefix": "Text", "rate_hz": "Float"},
-      "output_types": {"found": "Bool", "profile": "Dict", "driver": "Dict", "calibration": "Dict", "path": "Text", "report": "Text"},
-      "input_defaults": {"profile_id": "so_arm101", "topic_prefix": "/follower", "rate_hz": 0.0},
-      "input_choices": {"profile_id": ["so_arm101"]}
-    },
-    "leader_driver": {
-      "id": "leader_driver", "type": "RobotDiscovery", "pos": [820, 200],
-      "params": {"action": "start", "run_id": "leader_arm_driver", "require_usb": true, "probe_open": false, "serial_port": "", "host": "127.0.0.1", "port": 9090, "state_topic": "/leader/joint_states", "command_topic": "/leader/joint_commands", "config_topic": "/leader/joint_config", "control_topic": "/leader/robot_control", "units": "degrees"},
+    "leader_robot": {
+      "id": "leader_robot", "type": "Robot", "pos": [420, 200],
+      "params": {"profile_id": "so_arm101", "selection": 0, "action": "start", "run_id": "leader_arm_driver", "topic_prefix": "/leader", "rate_hz": 60.0, "host": "127.0.0.1", "port": 9090, "state_topic": "/leader/joint_states", "command_topic": "/leader/joint_commands", "config_topic": "/leader/joint_config", "control_topic": "/leader/robot_control", "units": "degrees"},
       "inputs": ["trigger", "driver", "usb", "action", "run_id", "port_filter", "probe_open", "require_usb", "serial_port", "host", "port", "state_topic", "command_topic", "config_topic", "control_topic", "units"],
       "outputs": ["found", "ready", "usb_ready", "driver_running", "usb", "driver", "robot", "report"],
       "input_types": {"trigger": "Any", "driver": "Dict", "usb": "Dict", "action": "Text", "run_id": "Text", "port_filter": "Text", "probe_open": "Bool", "require_usb": "Bool", "serial_port": "Text", "host": "Text", "port": "Int", "state_topic": "Text", "command_topic": "Text", "config_topic": "Text", "control_topic": "Text", "units": "Text"},
@@ -69,9 +31,9 @@
       "input_defaults": {"action": "start", "run_id": "leader_arm_driver", "port_filter": "", "probe_open": false, "require_usb": true, "serial_port": "", "host": "127.0.0.1", "port": 9090, "state_topic": "/leader/joint_states", "command_topic": "/leader/joint_commands", "config_topic": "/leader/joint_config", "control_topic": "/leader/robot_control", "units": "degrees"},
       "input_choices": {"action": ["check", "start", "stop"], "units": ["radians", "degrees"]}
     },
-    "follower_driver": {
-      "id": "follower_driver", "type": "RobotDiscovery", "pos": [820, 620],
-      "params": {"action": "start", "run_id": "follower_arm_driver", "require_usb": true, "probe_open": false, "serial_port": "", "host": "127.0.0.1", "port": 9090, "state_topic": "/follower/joint_states", "command_topic": "/follower/joint_commands", "config_topic": "/follower/joint_config", "control_topic": "/follower/robot_control", "units": "degrees"},
+    "follower_robot": {
+      "id": "follower_robot", "type": "Robot", "pos": [420, 620],
+      "params": {"profile_id": "so_arm101", "selection": 1, "action": "start", "run_id": "follower_arm_driver", "topic_prefix": "/follower", "rate_hz": 60.0, "host": "127.0.0.1", "port": 9090, "state_topic": "/follower/joint_states", "command_topic": "/follower/joint_commands", "config_topic": "/follower/joint_config", "control_topic": "/follower/robot_control", "units": "degrees"},
       "inputs": ["trigger", "driver", "usb", "action", "run_id", "port_filter", "probe_open", "require_usb", "serial_port", "host", "port", "state_topic", "command_topic", "config_topic", "control_topic", "units"],
       "outputs": ["found", "ready", "usb_ready", "driver_running", "usb", "driver", "robot", "report"],
       "input_types": {"trigger": "Any", "driver": "Dict", "usb": "Dict", "action": "Text", "run_id": "Text", "port_filter": "Text", "probe_open": "Bool", "require_usb": "Bool", "serial_port": "Text", "host": "Text", "port": "Int", "state_topic": "Text", "command_topic": "Text", "config_topic": "Text", "control_topic": "Text", "units": "Text"},
@@ -107,20 +69,13 @@
     }
   },
   "edges": [
-    {"from": "leader_usb", "from_port": "report", "to": "rosbridge", "to_port": "trigger"},
-    {"from": "leader_usb", "from_port": "usb", "to": "leader_profile", "to_port": "hardware"},
-    {"from": "follower_usb", "from_port": "usb", "to": "follower_profile", "to_port": "hardware"},
-    {"from": "leader_profile", "from_port": "driver", "to": "leader_driver", "to_port": "driver"},
-    {"from": "leader_usb", "from_port": "usb", "to": "leader_driver", "to_port": "usb"},
-    {"from": "rosbridge", "from_port": "report", "to": "leader_driver", "to_port": "trigger"},
-    {"from": "follower_profile", "from_port": "driver", "to": "follower_driver", "to_port": "driver"},
-    {"from": "follower_usb", "from_port": "usb", "to": "follower_driver", "to_port": "usb"},
-    {"from": "rosbridge", "from_port": "report", "to": "follower_driver", "to_port": "trigger"},
-    {"from": "leader_driver", "from_port": "robot", "to": "leader_release", "to_port": "robot"},
-    {"from": "leader_driver", "from_port": "report", "to": "leader_release", "to_port": "trigger"},
+    {"from": "rosbridge", "from_port": "report", "to": "leader_robot", "to_port": "trigger"},
+    {"from": "rosbridge", "from_port": "report", "to": "follower_robot", "to_port": "trigger"},
+    {"from": "leader_robot", "from_port": "robot", "to": "leader_release", "to_port": "robot"},
+    {"from": "leader_robot", "from_port": "report", "to": "leader_release", "to_port": "trigger"},
     {"from": "leader_release", "from_port": "report", "to": "follow", "to_port": "trigger"},
-    {"from": "leader_driver", "from_port": "robot", "to": "follow", "to_port": "leader_robot"},
-    {"from": "follower_driver", "from_port": "robot", "to": "follow", "to_port": "follower_robot"},
+    {"from": "leader_robot", "from_port": "robot", "to": "follow", "to_port": "leader_robot"},
+    {"from": "follower_robot", "from_port": "robot", "to": "follow", "to_port": "follower_robot"},
     {"from": "follow", "from_port": "summary", "to": "out", "to_port": "value"}
   ]
 }

@@ -19,6 +19,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from blacknode.node import Any as AnyPort
 from blacknode.node import Bool, Dict, Enum, Float, Image, Int, List, Text, node
 
 _CATEGORY = "Robot"
@@ -229,11 +230,12 @@ def _hardware_id(ctx: dict[str, Any]) -> str:
     hardware = ctx.get("hardware") if isinstance(ctx.get("hardware"), dict) else {}
     recommended = hardware.get("recommended") if isinstance(hardware.get("recommended"), dict) else {}
     return explicit or str(
-        hardware.get("serial")
+        recommended.get("serial")
+        or recommended.get("serial_number")
+        or hardware.get("serial")
         or hardware.get("serial_number")
-        or recommended.get("serial")
-        or hardware.get("path")
         or recommended.get("path")
+        or hardware.get("path")
         or ""
     ).strip()
 
@@ -519,38 +521,136 @@ def robot_profile_save(ctx: dict) -> dict:
 @node(
     name="Robot",
     category=_CATEGORY,
-    description="Select a built-in or saved robot and automatically apply calibration from connected USB hardware.",
+    description="One easy robot node: select a robot, find its connection, apply calibration, and optionally start its driver.",
+    primary_inputs=["trigger"],
+    primary_outputs=["robot", "report"],
     inputs={
+        "trigger": AnyPort,
         "profile_id": Enum(_available_profile_ids(), default="so_arm101"),
+        "selection": Int(default=0),
         "hardware": Dict,
+        "usb": Dict,
+        "driver": Dict,
+        "hardware_selection": Int(default=0),
+        "hardware_filter": Text(default=""),
+        "port_filter": Text(default=""),
+        "match_vendor_id": Text(default=""),
+        "match_product_id": Text(default=""),
+        "probe_open": Bool(default=False),
+        "auto_discover": Bool(default=True),
+        "action": Enum(["check", "start", "stop"], default="check"),
+        "run_id": Text(default="robot_driver"),
+        "require_hardware": Bool(default=True),
+        "require_usb": Bool(default=True),
+        "serial_port": Text(default=""),
+        "host": Text(default="127.0.0.1"),
+        "port": Int(default=9090),
+        "state_topic": Text(default="/joint_states"),
+        "command_topic": Text(default="/joint_commands"),
+        "config_topic": Text(default="/joint_config"),
+        "control_topic": Text(default="/robot_control"),
+        "units": Enum(["radians", "degrees"], default="degrees"),
         "topic_prefix": Text(default=""),
         "rate_hz": Float(default=0.0),
     },
-    outputs={"found": Bool, "profile": Dict, "driver": Dict, "calibration": Dict, "path": Text, "report": Text},
+    outputs={
+        "found": Bool, "ready": Bool, "usb_ready": Bool, "driver_running": Bool,
+        "port": Text, "serial": Text, "profile": Dict, "driver": Dict, "robot": Dict,
+        "hardware": Dict, "usb": Dict, "devices": List, "recommended": Dict,
+        "permissions": Dict, "calibration": Dict, "path": Text, "report": Text,
+    },
 )
 def robot_profile_load(ctx: dict) -> dict:
     profile_id = _slug(ctx.get("profile_id") or "so_arm101")
     profile, path = load_profile(profile_id)
     if profile is None:
         known = ", ".join(item["id"] for item in list_profiles()) or "none"
-        return {"found": False, "profile": {}, "driver": {}, "calibration": {}, "path": "", "report": f"robot profile '{profile_id}' not found (available: {known})"}
-    hardware_id = _hardware_id(ctx)
+        return {"found": False, "ready": False, "profile": {}, "driver": {}, "robot": {}, "hardware": {},
+                "devices": [], "calibration": {}, "path": "", "report": f"robot profile '{profile_id}' not found (available: {known})"}
+
+    supplied_hardware = ctx.get("hardware") if isinstance(ctx.get("hardware"), dict) else ctx.get("usb")
+    hardware = dict(supplied_hardware or {}) if isinstance(supplied_hardware, dict) else {}
+    discovery_report = ""
+    devices: list[dict[str, Any]] = []
+    if not hardware and bool(ctx.get("auto_discover", True)):
+        from .robot import robot_usb_discovery
+
+        discovered = robot_usb_discovery({
+            "port_filter": ctx.get("hardware_filter") or ctx.get("port_filter", ""),
+            "match_vendor_id": ctx.get("match_vendor_id", ""),
+            "match_product_id": ctx.get("match_product_id", ""),
+            "probe_open": bool(ctx.get("probe_open", False)),
+        })
+        devices = [dict(item) for item in discovered.get("devices", []) if isinstance(item, dict)]
+        legacy_selection = ctx.get("hardware_selection")
+        selection = int(legacy_selection if legacy_selection not in (None, "", 0) else ctx.get("selection") or 0)
+        recommended = devices[selection] if 0 <= selection < len(devices) else {}
+        selected_report = (
+            f"selected_index: {selection}\n"
+            f"selected_port: {recommended.get('path') or 'not available'}\n"
+            f"selected_serial: {recommended.get('serial') or 'not available'}"
+        )
+        discovery_report = str(discovered.get("report") or "") + "\n" + selected_report
+        hardware = {
+            **discovered,
+            "port": str(recommended.get("path") or ""),
+            "serial": str(recommended.get("serial") or ""),
+            "recommended": recommended,
+            "report": discovery_report,
+        }
+    elif hardware:
+        devices = [dict(item) for item in hardware.get("devices", []) if isinstance(item, dict)]
+
+    effective_ctx = {**ctx, "hardware": hardware}
+    hardware_id = _hardware_id(effective_ctx)
     effective_profile = copy.deepcopy(profile)
     rate_override = float(ctx.get("rate_hz") or 0.0)
     if rate_override > 0:
         effective_profile.setdefault("driver", {})["rate_hz"] = rate_override
-    driver = _driver_from_profile(effective_profile, hardware_id, str(ctx.get("topic_prefix") or ""))
+    supplied_driver = ctx.get("driver") if isinstance(ctx.get("driver"), dict) else {}
+    driver = dict(supplied_driver) or _driver_from_profile(effective_profile, hardware_id, str(ctx.get("topic_prefix") or ""))
     effective = dict(driver.get("profile") or profile)
+    from .robot import robot_discovery
+
+    connection = robot_discovery({
+        "driver": driver,
+        "usb": hardware,
+        "action": ctx.get("action", "check"),
+        "run_id": ctx.get("run_id", "robot_driver"),
+        "require_usb": bool(ctx.get("require_hardware") if "require_hardware" in ctx else ctx.get("require_usb", True)),
+        "serial_port": ctx.get("serial_port", ""),
+        "host": ctx.get("host", "127.0.0.1"),
+        "port": ctx.get("port", 9090),
+        "state_topic": ctx.get("state_topic", "/joint_states"),
+        "command_topic": ctx.get("command_topic", "/joint_commands"),
+        "config_topic": ctx.get("config_topic", "/joint_config"),
+        "control_topic": ctx.get("control_topic", "/robot_control"),
+        "units": ctx.get("units", "degrees"),
+    })
+    recommended = hardware.get("recommended") if isinstance(hardware.get("recommended"), dict) else {}
     return {
         "found": True,
+        "ready": bool(connection.get("ready")),
+        "usb_ready": bool(connection.get("usb_ready")),
+        "driver_running": bool(connection.get("driver_running")),
+        "port": str(recommended.get("path") or ""),
+        "serial": str(recommended.get("serial") or ""),
         "profile": effective,
         "driver": driver,
+        "robot": dict(connection.get("robot") or {}),
+        "hardware": hardware,
+        "usb": hardware,
+        "devices": devices,
+        "recommended": recommended,
+        "permissions": dict(hardware.get("permissions") or {}),
         "calibration": dict(effective.get("calibration") or {}),
         "path": str(path or "builtin"),
         "report": (
             f"loaded robot profile '{profile_id}' ({len(_joint_list(effective))} joint(s))"
             + (f"\ncalibration: {driver['calibration_path']}" if driver.get("calibration_path") else "\ncalibration: none")
-            + (f"\nhardware: {hardware_id} (automatic from USB discovery)" if hardware_id else "\nhardware: not connected; connect USB discovery to select a device calibration")
+            + (f"\nhardware: {hardware_id}" if hardware_id else "\nhardware: not connected")
+            + (f"\n{discovery_report}" if discovery_report else "")
+            + f"\n{connection.get('report', '')}"
         ),
     }
 

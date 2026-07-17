@@ -481,8 +481,40 @@ def test_joint_list_accepts_more_than_sixteen_numbered_inputs():
 
 def test_robot_profile_selector_is_a_dropdown():
     assert "so_arm101" in _NODE_REGISTRY["Robot"]._bn_input_choices["profile_id"]
+    assert _NODE_REGISTRY["Robot"]._bn_primary_inputs == ["trigger"]
+    assert _NODE_REGISTRY["Robot"]._bn_primary_outputs == ["robot", "report"]
+    assert _NODE_REGISTRY["RobotUSBDiscovery"]._bn_hidden is True
     assert _NODE_REGISTRY["RobotProfileLoad"]._bn_hidden is True
     assert _NODE_REGISTRY["RobotDriverPreset"]._bn_hidden is True
+    assert _NODE_REGISTRY["RobotDiscovery"]._bn_hidden is True
+
+
+def test_robot_automatically_selects_hardware_and_checks_connection(monkeypatch):
+    devices = [
+        {"path": "COM3", "serial": "LEADER", "accessible": True},
+        {"path": "COM7", "serial": "FOLLOWER", "accessible": True},
+    ]
+    monkeypatch.setattr(robot_nodes, "robot_usb_discovery", lambda _ctx: {
+        "found": True, "ready": True, "port": "COM3", "serial": "LEADER",
+        "devices": devices, "recommended": devices[0], "report": "found 2",
+    })
+    seen = {}
+
+    def fake_connection(ctx):
+        seen.update(ctx)
+        return {"ready": False, "robot": {"ready": False}, "report": "driver checked"}
+
+    monkeypatch.setattr(robot_nodes, "robot_discovery", fake_connection)
+
+    result = _NODE_REGISTRY["Robot"]({"profile_id": "so_arm101", "selection": 1})
+
+    assert result["hardware"]["recommended"]["serial"] == "FOLLOWER"
+    assert result["hardware"]["serial"] == "FOLLOWER"
+    assert result["driver"]["hardware_id"] == "FOLLOWER"
+    assert seen["usb"]["recommended"]["path"] == "COM7"
+    assert "selected_index: 1" in result["report"]
+    assert "selected_port: COM7" in result["report"]
+    assert seen["action"] == "check"
 
 
 def test_profile_duplicate_turns_builtin_into_editable_local_robot(monkeypatch, tmp_path):

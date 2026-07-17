@@ -524,6 +524,7 @@ def stop_runtime_services() -> dict[str, Any]:
 @node(
     name="RobotUSBDiscovery",
     category=_CATEGORY,
+    hidden=True,
     description="Discover USB serial robot ports and report access/permission fixes.",
     inputs={
         "refresh": AnyPort,
@@ -800,7 +801,8 @@ def robot_driver_launcher(ctx: dict) -> dict:
 @node(
     name="RobotDiscovery",
     category=_CATEGORY,
-    description="One generic robot setup node: discover USB, optionally launch a driver, and output a standard robot profile.",
+    hidden=True,
+    description="Advanced compatibility node for connection discovery and driver launch; new workflows should use Robot.",
     inputs={
         "trigger": AnyPort,
         "driver": Dict,

@@ -14,35 +14,14 @@
     "required_packages": ["blacknode-robot", "blacknode-ros2"]
   },
   "node_meta": {
-    "usb": {
-      "id": "usb", "type": "RobotUSBDiscovery", "pos": [40, 40],
-      "params": {"port_filter": "", "match_vendor_id": "", "match_product_id": "", "probe_open": false},
-      "inputs": ["refresh", "port_filter", "match_vendor_id", "match_product_id", "probe_open"], "outputs": ["found", "ready", "devices", "recommended", "permissions", "report"],
-      "input_types": {"refresh": "Any", "port_filter": "Text", "match_vendor_id": "Text", "match_product_id": "Text", "probe_open": "Bool"}, "output_types": {"found": "Bool", "ready": "Bool", "devices": "List", "recommended": "Dict", "permissions": "Dict", "report": "Text"},
-      "input_defaults": {"port_filter": "", "match_vendor_id": "", "match_product_id": "", "probe_open": false}
-    },
-    "preset": {
-      "id": "preset",
+    "robot": {
+      "id": "robot",
       "type": "Robot",
-      "params": {"profile_id": "so_arm101"},
-      "pos": [40, 200],
-      "inputs": ["profile_id", "hardware"],
-      "outputs": ["found", "profile", "driver", "calibration", "path", "report"],
-      "input_types": {"profile_id": "Text", "hardware": "Dict"},
-      "output_types": {"found": "Bool", "profile": "Dict", "driver": "Dict", "calibration": "Dict", "path": "Text", "report": "Text"},
-      "input_defaults": {"profile_id": "so_arm101"},
-      "input_choices": {"profile_id": ["so_arm101"]}
-    },
-    "discovery": {
-      "id": "discovery",
-      "type": "RobotDiscovery",
       "params": {
+        "profile_id": "so_arm101",
+        "selection": 0,
         "action": "start",
         "run_id": "so_arm101_driver",
-        "require_usb": true,
-        "port_filter": "",
-        "probe_open": false,
-        "serial_port": "",
         "host": "127.0.0.1",
         "port": 9090,
         "state_topic": "/joint_states",
@@ -54,6 +33,7 @@
       "inputs": [
         "trigger",
         "driver",
+        "hardware",
         "action",
         "run_id",
         "port_filter",
@@ -71,6 +51,7 @@
       "input_types": {
         "trigger": "Any",
         "driver": "Dict",
+        "hardware": "Dict",
         "action": "Text",
         "run_id": "Text",
         "port_filter": "Text",
@@ -436,21 +417,8 @@
     }
   },
   "edges": [
-    {"from": "usb", "from_port": "recommended", "to": "preset", "to_port": "hardware"},
     {
-      "from": "preset",
-      "from_port": "driver",
-      "to": "discovery",
-      "to_port": "driver"
-    },
-    {
-      "from": "preset",
-      "from_port": "report",
-      "to": "discovery",
-      "to_port": "trigger"
-    },
-    {
-      "from": "discovery",
+      "from": "robot",
       "from_port": "report",
       "to": "status",
       "to_port": "trigger"
@@ -468,7 +436,7 @@
       "to_port": "pose"
     },
     {
-      "from": "discovery",
+      "from": "robot",
       "from_port": "robot",
       "to": "connection",
       "to_port": "robot"
@@ -498,7 +466,7 @@
       "to_port": "trigger"
     },
     {
-      "from": "discovery",
+      "from": "robot",
       "from_port": "robot",
       "to": "manual_move",
       "to_port": "robot"

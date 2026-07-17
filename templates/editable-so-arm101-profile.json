@@ -11,9 +11,9 @@
     "required_packages": ["blacknode-robot"]
   },
   "node_meta": {
-    "usb": {
-      "id": "usb", "type": "RobotUSBDiscovery", "pos": [790, 500],
-      "params": {"port_filter": "", "match_vendor_id": "", "match_product_id": "", "probe_open": false},
+    "robot": {
+      "id": "robot", "type": "Robot", "pos": [790, 500],
+      "params": {"selection": 0},
       "inputs": ["refresh", "port_filter", "match_vendor_id", "match_product_id", "probe_open"], "outputs": ["found", "ready", "devices", "recommended", "permissions", "report"],
       "input_types": {"refresh": "Any", "port_filter": "Text", "match_vendor_id": "Text", "match_product_id": "Text", "probe_open": "Bool"}, "output_types": {"found": "Bool", "ready": "Bool", "devices": "List", "recommended": "Dict", "permissions": "Dict", "report": "Text"},
       "input_defaults": {"port_filter": "", "match_vendor_id": "", "match_product_id": "", "probe_open": false}
@@ -90,7 +90,7 @@
     {"from": "wrist_roll", "from_port": "joint", "to": "joints", "to_port": "joint_5"},
     {"from": "gripper", "from_port": "joint", "to": "joints", "to_port": "joint_6"},
     {"from": "joints", "from_port": "joints", "to": "definition", "to_port": "joints"},
-    {"from": "usb", "from_port": "recommended", "to": "definition", "to_port": "hardware"},
+    {"from": "robot", "from_port": "recommended", "to": "definition", "to_port": "hardware"},
     {"from": "definition", "from_port": "profile", "to": "save", "to_port": "profile"},
     {"from": "save", "from_port": "report", "to": "out", "to_port": "value"}
   ]
