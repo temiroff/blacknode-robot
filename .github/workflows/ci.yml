@@ -22,6 +22,12 @@ jobs:
         with:
           repository: temiroff/Blacknode
           path: core
+      - name: Check out package dependencies
+        shell: bash
+        run: |
+          mkdir -p core/packages
+          git clone --depth 1 https://github.com/temiroff/blacknode-ros2.git core/packages/blacknode-ros2
+          git clone --depth 1 https://github.com/temiroff/blacknode-drivers.git core/packages/blacknode-drivers
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
@@ -44,6 +50,7 @@ jobs:
         env:
           PYTHONPATH: ../core/python
           PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+          BLACKNODE_FEETECH_DRIVER: ${{ github.workspace }}/core/packages/blacknode-drivers/components/feetech/adapters/ros2/runtime/feetech_bus_driver.py
         run: python -m pytest tests
       - name: Validate official package catalog
         working-directory: core
