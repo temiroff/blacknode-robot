@@ -6,8 +6,9 @@ state separately from the Blacknode core checkout that may contain it.
 ## Scope
 
 Keep generic USB discovery, permission checks, driver descriptors and launch,
-robot profiles, hardware-bound calibration, and physical robot drivers here.
-Keep ROS transport/control nodes in `blacknode-ros2`.
+robot profiles, hardware-bound calibration, and capability bindings here.
+Keep physical drivers in `blacknode-drivers`, generic controllers in
+`blacknode-controllers`, and ROS transport/control nodes in `blacknode-ros2`.
 
 ## Safety rules
 

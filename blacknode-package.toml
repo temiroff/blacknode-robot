@@ -1,12 +1,24 @@
 [package]
 name = "blacknode-robot"
-version = "0.1.0"
+version = "0.2.0"
 description = "Generic robot discovery, USB permission checks, driver launch, and robot profile contracts."
-requires-blacknode = ">=0.1.0"
+requires-blacknode = ">=0.3.0"
+layer = "robot"
+component-mode = true
 
 [categories]
 "Robot" = "#14b8a6"
 
-[dependencies]
-pip = ["feetech-servo-sdk>=1.0", "roslibpy>=1.5"]
-imports = ["scservo_sdk", "roslibpy"]
+[components.core]
+description = "Robot contracts, discovery, profiles, calibration, capabilities, and driver launch descriptors."
+default = true
+capabilities = ["robot.contracts", "robot.profiles", "robot.calibration", "robot.discovery"]
+nodes = ["nodes"]
+module-root = true
+node-types = [
+  "Robot", "RobotCalibrationRecorder", "RobotConnectionDashboard", "RobotDefinition",
+  "RobotDiscovery", "RobotDriverDescriptor", "RobotDriverLauncher", "RobotDriverPreset",
+  "RobotJointDefinition", "RobotJointList", "RobotProfileDuplicate", "RobotProfileList",
+  "RobotProfileLoad", "RobotProfileSave", "RobotUSBDiscovery",
+]
+

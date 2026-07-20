@@ -721,7 +721,6 @@ def test_custom_robot_templates_validate():
         "editable-so-arm101-profile.json",
         "robot-guided-calibration.json",
         "so-arm101-motion-test.json",
-        "so-arm101-leader-follower.json",
     ):
         workflow = json.loads((templates / name).read_text(encoding="utf-8"))
         report = validate_workflow(workflow)
