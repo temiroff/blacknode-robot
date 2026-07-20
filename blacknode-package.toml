@@ -1,8 +1,8 @@
 [package]
 name = "blacknode-robot"
-version = "0.1.0"
+version = "0.2.0"
 description = "Generic robot discovery, USB permission checks, driver launch, and robot profile contracts."
-requires-blacknode = ">=0.1.0"
+requires-blacknode = ">=0.3.0"
 layer = "robot"
 component-mode = true
 
@@ -15,4 +15,10 @@ default = true
 capabilities = ["robot.contracts", "robot.profiles", "robot.calibration", "robot.discovery"]
 nodes = ["nodes"]
 module-root = true
+node-types = [
+  "Robot", "RobotCalibrationRecorder", "RobotConnectionDashboard", "RobotDefinition",
+  "RobotDiscovery", "RobotDriverDescriptor", "RobotDriverLauncher", "RobotDriverPreset",
+  "RobotJointDefinition", "RobotJointList", "RobotProfileDuplicate", "RobotProfileList",
+  "RobotProfileLoad", "RobotProfileSave", "RobotUSBDiscovery",
+]
 
