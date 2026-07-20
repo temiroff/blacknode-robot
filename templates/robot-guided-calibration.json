@@ -1,7 +1,7 @@
 {
   "kind": "blacknode.workflow",
   "schema_version": 1,
-  "name": "Robot Guided Calibration",
+  "name": "Guided Calibration",
   "saved_at": "2026-07-15T00:00:00",
   "entrypoint": {"node_id": "out", "port": "value"},
   "metadata": {
