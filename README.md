@@ -4,7 +4,8 @@
 hardware-identity calibration, capability bindings, and process descriptors.
 Physical driver implementations are selectable `blacknode-drivers` components.
 The existing Feetech script path remains as a compatibility launcher for saved
-profiles and delegates to `blacknode-drivers/feetech-ros2`.
+profiles and delegates to the `ros2` adapter nested under the `feetech`
+component in `blacknode-drivers`.
 
 <video src="https://github.com/user-attachments/assets/80a9b797-ecf7-47d3-b6d3-baad7c0ea170" controls width="860"></video>
 

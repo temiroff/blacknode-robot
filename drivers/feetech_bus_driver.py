@@ -2,7 +2,8 @@
 """Compatibility entrypoint for the Feetech driver now owned by blacknode-drivers.
 
 Existing robot profiles and saved driver descriptors may continue launching
-this path. New integrations should enable blacknode-drivers/feetech-ros2.
+this path. New integrations should enable the `ros2` adapter nested under the
+`blacknode-drivers/feetech` component.
 """
 from __future__ import annotations
 
@@ -21,7 +22,9 @@ def _runtime_path() -> Path:
         Path(__file__).resolve().parents[2]
         / "blacknode-drivers"
         / "components"
-        / "feetech-ros2"
+        / "feetech"
+        / "adapters"
+        / "ros2"
         / "runtime"
         / "feetech_bus_driver.py"
     )
@@ -31,8 +34,9 @@ def _runtime_path() -> Path:
             return resolved
     searched = ", ".join(str(path) for path in candidates)
     raise FileNotFoundError(
-        "Feetech runtime is provided by blacknode-drivers/feetech-ros2; "
-        f"enable or install that component. Searched: {searched}"
+        "Feetech runtime is provided by the ros2 adapter nested under "
+        "blacknode-drivers/feetech; enable that adapter. "
+        f"Searched: {searched}"
     )
 
 
