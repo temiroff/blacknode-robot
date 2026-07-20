@@ -317,8 +317,11 @@ def test_driver_reads_all_joint_positions_with_one_group_transaction():
 
 
 def test_driver_uses_ros2_rosbridge_message_type_names():
-    source = _DRIVER_PATH.read_text(encoding="utf-8")
+    compatibility = _load_driver_module()
+    runtime = compatibility._runtime_path()
+    source = runtime.read_text(encoding="utf-8")
 
+    assert "blacknode-drivers" in str(runtime)
     assert '"sensor_msgs/msg/JointState"' in source
     assert '"std_msgs/msg/String"' in source
     assert '"sensor_msgs/JointState"' not in source
