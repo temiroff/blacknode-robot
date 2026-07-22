@@ -519,7 +519,7 @@ def robot_profile_save(ctx: dict) -> dict:
 
 
 @node(
-    name="Robot", component="profiles",
+    name="Robot", component="models",
     category=_CATEGORY,
     description="One easy robot node: select a robot, find its connection, apply calibration, and optionally start its driver.",
     primary_inputs=["trigger"],
