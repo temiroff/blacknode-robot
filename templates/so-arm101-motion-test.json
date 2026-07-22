@@ -11,7 +11,7 @@
     "template": true,
     "description": "Connect and control a real SO-ARM101 in one visible path: discover USB, launch the driver, show an explicitly live joint monitor, optionally release torque for manual positioning, then safely hold or arm one joint movement. Safe by default: Manual Move action is check, motion is disarmed, and Stop all disables torque.",
     "color": "#14b8a6",
-    "required_packages": ["blacknode-robot", "blacknode-ros2"]
+    "required_packages": ["blacknode-controllers", "blacknode-robot", "blacknode-ros2"]
   },
   "node_meta": {
     "robot": {

@@ -22,3 +22,38 @@ node-types = [
   "RobotProfileLoad", "RobotProfileSave", "RobotUSBDiscovery",
 ]
 
+# Declared for the package roadmap; sources land in components/contracts/nodes.
+[components.contracts]
+description = "Robot and joint definition contracts."
+default = false
+capabilities = ["robot.contracts"]
+
+# Declared for the package roadmap; sources land in components/profiles/nodes.
+[components.profiles]
+description = "Robot profile storage, listing, and duplication."
+default = false
+capabilities = ["robot.profiles"]
+
+# Declared for the package roadmap; sources land in components/models/nodes.
+[components.models]
+description = "Driver descriptors, presets, and launch models."
+default = false
+capabilities = ["robot.models"]
+
+# Declared for the package roadmap; sources land in components/calibration/nodes.
+[components.calibration]
+description = "Calibration capture and replay."
+default = false
+capabilities = ["robot.calibration"]
+
+# Declared for the package roadmap; sources land in components/capabilities/nodes.
+[components.capabilities]
+description = "Discovery, connection health, and capability reporting."
+default = false
+capabilities = ["robot.capabilities"]
+
+# Declared for the package roadmap; sources land in components/authorization/nodes.
+[components.authorization]
+description = "Operator authorization and consequential-action gating."
+default = false
+capabilities = ["robot.authorization"]

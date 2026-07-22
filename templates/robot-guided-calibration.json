@@ -8,7 +8,7 @@
     "template": true,
     "description": "Load a named robot, discover and start it, release torque explicitly, record hand-moved joint extrema, capture Home, and save reviewed safe limits per USB serial. Calibration never commands motion.",
     "color": "#f59e0b",
-    "required_packages": ["blacknode-robot", "blacknode-ros2"]
+    "required_packages": ["blacknode-controllers", "blacknode-robot", "blacknode-ros2"]
   },
   "node_meta": {
     "robot": {

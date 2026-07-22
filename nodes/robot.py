@@ -522,7 +522,7 @@ def stop_runtime_services() -> dict[str, Any]:
 
 
 @node(
-    name="RobotUSBDiscovery",
+    name="RobotUSBDiscovery", component="capabilities",
     category=_CATEGORY,
     hidden=True,
     description="Discover USB serial robot ports and report access/permission fixes.",
@@ -626,7 +626,7 @@ def robot_usb_discovery(ctx: dict) -> dict:
 
 
 @node(
-    name="RobotDriverDescriptor",
+    name="RobotDriverDescriptor", component="models",
     category=_CATEGORY,
     description="Declare how a robot driver should be launched from a discovered serial port.",
     inputs={
@@ -673,7 +673,7 @@ def robot_driver_descriptor(ctx: dict) -> dict:
 
 
 @node(
-    name="RobotDriverLauncher",
+    name="RobotDriverLauncher", component="models",
     category=_CATEGORY,
     description="Start or stop a generic robot driver process using a descriptor command template.",
     inputs={
@@ -799,7 +799,7 @@ def robot_driver_launcher(ctx: dict) -> dict:
 
 
 @node(
-    name="RobotDiscovery",
+    name="RobotDiscovery", component="capabilities",
     category=_CATEGORY,
     hidden=True,
     description="Advanced compatibility node for connection discovery and driver launch; new workflows should use Robot.",
@@ -959,7 +959,7 @@ def _svg_data(svg: str) -> str:
 
 
 @node(
-    name="RobotConnectionDashboard",
+    name="RobotConnectionDashboard", component="capabilities",
     category=_CATEGORY,
     description="Render one clear USB, driver, ROS interface, and live-pose readiness screen for a robot demo.",
     live=True,
@@ -970,9 +970,10 @@ def _svg_data(svg: str) -> str:
         "pose": Dict,
         "status_report": Text(default=""),
     },
-    outputs={"dashboard": Image, "ready": Bool, "summary": Dict, "report": Text},
+    outputs={"dashboard": Image, "ready": Bool, "live": Bool, "summary": Dict, "report": Text},
 )
 def robot_connection_dashboard(ctx: dict) -> dict:
+    live_pose = bool(ctx.get("__live_pose__"))
     robot = dict(ctx.get("robot") or {})
     usb = dict(robot.get("usb") or {})
     driver = dict(robot.get("driver") or {})
@@ -1132,4 +1133,4 @@ def robot_connection_dashboard(ctx: dict) -> dict:
         f"USB={'ok' if usb_ready else 'wait'}, driver={'ok' if driver_running else 'wait'}, "
         f"interface={'ok' if connected and interface_ready else 'wait'}, live_pose={'ok' if pose_ready else 'wait'}"
     )
-    return {"dashboard": _svg_data(svg), "ready": ready, "summary": summary, "report": report}
+    return {"dashboard": _svg_data(svg), "ready": ready, "live": live_pose, "summary": summary, "report": report}

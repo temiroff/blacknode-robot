@@ -343,7 +343,7 @@ def _driver_from_profile(
 
 
 @node(
-    name="RobotJointDefinition",
+    name="RobotJointDefinition", component="contracts",
     category=_CATEGORY,
     description="Define one stable robot joint: its user-facing label, bus id, safe limits, zero, and direction.",
     inputs={
@@ -392,7 +392,7 @@ _JOINT_INPUTS = {"joint_1": Dict}
 
 
 @node(
-    name="RobotJointList",
+    name="RobotJointList", component="contracts",
     category=_CATEGORY,
     description="Collect any number of joint definitions; the editor adds another joint socket as the list fills.",
     inputs=_JOINT_INPUTS,
@@ -409,7 +409,7 @@ def robot_joint_list(ctx: dict) -> dict:
 
 
 @node(
-    name="RobotDefinition",
+    name="RobotDefinition", component="contracts",
     category=_CATEGORY,
     description="Assemble an editable robot model and executable driver descriptor from ordinary graph inputs.",
     inputs={
@@ -485,7 +485,7 @@ def robot_definition(ctx: dict) -> dict:
 
 
 @node(
-    name="RobotProfileSave",
+    name="RobotProfileSave", component="profiles",
     category=_CATEGORY,
     description="Save an editable robot definition to robots/<profile_id>/profile.json for reuse.",
     inputs={"profile": Dict, "overwrite": Bool(default=False)},
@@ -519,7 +519,7 @@ def robot_profile_save(ctx: dict) -> dict:
 
 
 @node(
-    name="Robot",
+    name="Robot", component="profiles",
     category=_CATEGORY,
     description="One easy robot node: select a robot, find its connection, apply calibration, and optionally start its driver.",
     primary_inputs=["trigger"],
@@ -656,7 +656,7 @@ def robot_profile_load(ctx: dict) -> dict:
 
 
 @node(
-    name="RobotProfileLoad",
+    name="RobotProfileLoad", component="profiles",
     category=_CATEGORY,
     hidden=True,
     description="Compatibility alias for Robot. New workflows should use the generic Robot node.",
@@ -674,7 +674,7 @@ def robot_profile_load_compat(ctx: dict) -> dict:
 
 
 @node(
-    name="RobotProfileList",
+    name="RobotProfileList", component="profiles",
     category=_CATEGORY,
     description="List built-in and locally saved robot profiles.",
     inputs={"refresh": Text(default="")},
@@ -692,7 +692,7 @@ def robot_profile_list(ctx: dict) -> dict:
 
 
 @node(
-    name="RobotProfileDuplicate",
+    name="RobotProfileDuplicate", component="profiles",
     category=_CATEGORY,
     description="Duplicate a built-in or saved profile under a new editable lowercase id.",
     inputs={
@@ -851,7 +851,7 @@ def _session_outputs(session: dict[str, Any] | None, report: str, *, saved: bool
 
 
 @node(
-    name="RobotCalibrationRecorder",
+    name="RobotCalibrationRecorder", component="calibration",
     category=_CATEGORY,
     live=True,
     description="Record released-joint extrema and home pose, review a safety margin, and save calibration per physical robot.",
