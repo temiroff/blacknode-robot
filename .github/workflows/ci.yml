@@ -28,6 +28,7 @@ jobs:
           mkdir -p core/packages
           git clone --depth 1 https://github.com/temiroff/blacknode-ros2.git core/packages/blacknode-ros2
           git clone --depth 1 https://github.com/temiroff/blacknode-drivers.git core/packages/blacknode-drivers
+          git clone --depth 1 https://github.com/temiroff/blacknode-controllers.git core/packages/blacknode-controllers
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
