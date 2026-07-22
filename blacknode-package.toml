@@ -15,12 +15,6 @@ default = true
 capabilities = ["robot.contracts", "robot.profiles", "robot.calibration", "robot.discovery"]
 nodes = ["nodes"]
 module-root = true
-node-types = [
-  "Robot", "RobotCalibrationRecorder", "RobotConnectionDashboard", "RobotDefinition",
-  "RobotDiscovery", "RobotDriverDescriptor", "RobotDriverLauncher", "RobotDriverPreset",
-  "RobotJointDefinition", "RobotJointList", "RobotProfileDuplicate", "RobotProfileList",
-  "RobotProfileLoad", "RobotProfileSave", "RobotUSBDiscovery",
-]
 
 # Declared for the package roadmap; sources land in components/contracts/nodes.
 [components.contracts]
@@ -29,30 +23,50 @@ default = false
 capabilities = ["robot.contracts"]
 
 # Declared for the package roadmap; sources land in components/profiles/nodes.
+node-types = [
+  "RobotDefinition", "RobotJointDefinition", "RobotJointList"
+]
+
 [components.profiles]
 description = "Robot profile storage, listing, and duplication."
 default = false
 capabilities = ["robot.profiles"]
 
 # Declared for the package roadmap; sources land in components/models/nodes.
+node-types = [
+  "RobotProfileDuplicate", "RobotProfileList", "RobotProfileLoad", "RobotProfileSave"
+]
+
 [components.models]
 description = "Driver descriptors, presets, and launch models."
 default = false
 capabilities = ["robot.models"]
 
 # Declared for the package roadmap; sources land in components/calibration/nodes.
+node-types = [
+  "Robot", "RobotDriverDescriptor", "RobotDriverLauncher", "RobotDriverPreset"
+]
+
 [components.calibration]
 description = "Calibration capture and replay."
 default = false
 capabilities = ["robot.calibration"]
 
 # Declared for the package roadmap; sources land in components/capabilities/nodes.
+node-types = [
+  "RobotCalibrationRecorder"
+]
+
 [components.capabilities]
 description = "Discovery, connection health, and capability reporting."
 default = false
 capabilities = ["robot.capabilities"]
 
 # Declared for the package roadmap; sources land in components/authorization/nodes.
+node-types = [
+  "RobotConnectionDashboard", "RobotDiscovery", "RobotUSBDiscovery"
+]
+
 [components.authorization]
 description = "Operator authorization and consequential-action gating."
 default = false
