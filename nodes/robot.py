@@ -538,8 +538,10 @@ def identify_robot(params: dict[str, Any]) -> dict[str, Any]:
         )}
 
     names = list(start)
-    # A base joint moves the most visibly; fall back to the first joint.
-    joint = next((j for j in ("shoulder_pan", "base", "joint1") if j in start), names[0])
+    # We only know a robot from what it publishes, so move its first joint
+    # (joint zero) rather than guessing a 'base' by name. JointState.name is
+    # ordered, so this is the robot's own first joint whatever it's called.
+    joint = names[0]
     delta = math.radians(4.0)  # small, self-returning
     nudged = dict(start)
     nudged[joint] = start[joint] + delta
