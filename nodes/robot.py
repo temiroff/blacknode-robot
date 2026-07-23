@@ -506,10 +506,10 @@ def _release_torque_best_effort(run_id: str) -> None:
 
 
 def identify_robot(params: dict[str, Any]) -> dict[str, Any]:
-    """Wiggle one joint a few degrees and back, so you can see which physical arm
-    a Robot node controls.
+    """Wiggle one joint a few degrees and back, so you can see which physical
+    robot a Robot node controls.
 
-    Reads the current pose (proving which arm actually responds on this node's
+    Reads the current pose (proving which robot actually responds on this node's
     connection), nudges a base joint by a small bounded amount, then returns it
     to the exact start. Needs the driver running with torque on; a disarmed arm
     receives the commands but stays put, which the report calls out.
@@ -558,7 +558,7 @@ def identify_robot(params: dict[str, Any]) -> dict[str, Any]:
         "moved": True,
         "joint": joint,
         "report": (
-            f"pinged '{joint}' on {host}:{port} (±4° and back). If the arm did not "
+            f"pinged '{joint}' on {host}:{port} (±4° and back). If the robot did not "
             f"move, its torque is off — cook the Robot node to arm it. Start pose "
             f"{joint}={start_deg:.1f}{'rad' if units == 'radians' else '°'}."
         ),
