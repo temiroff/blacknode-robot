@@ -414,9 +414,53 @@
       },
       "output_types": {},
       "input_defaults": {}
+    },
+    "armed": {
+      "id": "armed",
+      "type": "Bool",
+      "params": {
+        "value": false,
+        "label": "Armed"
+      },
+      "pos": [2260, 120],
+      "inputs": [],
+      "outputs": ["value"],
+      "input_types": {},
+      "output_types": {
+        "value": "Bool"
+      },
+      "input_defaults": {}
+    },
+    "position_angle": {
+      "id": "position_angle",
+      "type": "Float",
+      "params": {
+        "value": 0.0,
+        "label": "Position angle"
+      },
+      "pos": [2260, 240],
+      "inputs": [],
+      "outputs": ["value"],
+      "input_types": {},
+      "output_types": {
+        "value": "Float"
+      },
+      "input_defaults": {}
     }
   },
   "edges": [
+    {
+      "from": "armed",
+      "from_port": "value",
+      "to": "set_joint",
+      "to_port": "armed"
+    },
+    {
+      "from": "position_angle",
+      "from_port": "value",
+      "to": "set_joint",
+      "to_port": "position"
+    },
     {
       "from": "robot",
       "from_port": "report",
