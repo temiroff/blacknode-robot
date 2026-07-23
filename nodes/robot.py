@@ -11,6 +11,7 @@ import glob
 import base64
 import html
 import json
+import math
 import os
 import re
 import shlex
@@ -502,6 +503,66 @@ def _release_torque_best_effort(run_id: str) -> None:
     except Exception:
         # A stop must never fail because the arm couldn't be reached to disarm.
         pass
+
+
+def identify_robot(params: dict[str, Any]) -> dict[str, Any]:
+    """Wiggle one joint a few degrees and back, so you can see which physical arm
+    a Robot node controls.
+
+    Reads the current pose (proving which arm actually responds on this node's
+    connection), nudges a base joint by a small bounded amount, then returns it
+    to the exact start. Needs the driver running with torque on; a disarmed arm
+    receives the commands but stays put, which the report calls out.
+    """
+    host = str(params.get("host") or "127.0.0.1")
+    port = int(params.get("port") or 9090)
+    state_topic = str(params.get("state_topic") or "/joint_states")
+    command_topic = str(params.get("command_topic") or "/joint_commands")
+    units = str(params.get("units") or "degrees")
+    try:
+        from blacknode.pkg.blacknode_ros2 import rosbridge_runtime as rb
+    except Exception as exc:  # noqa: BLE001
+        return {"moved": False, "report": f"ping FAILED: rosbridge runtime unavailable ({exc})"}
+
+    ok, err = rb.available()
+    if not ok:
+        return {"moved": False, "report": f"ping FAILED: {err}"}
+    try:
+        start = rb.read_pose(host, port, state_topic, 5.0)
+    except Exception as exc:  # noqa: BLE001
+        return {"moved": False, "report": f"ping FAILED: {exc}"}
+    if not start:
+        return {"moved": False, "report": (
+            f"ping FAILED: no JointState on {state_topic} at {host}:{port} — "
+            "is this robot's driver running?"
+        )}
+
+    names = list(start)
+    # A base joint moves the most visibly; fall back to the first joint.
+    joint = next((j for j in ("shoulder_pan", "base", "joint1") if j in start), names[0])
+    delta = math.radians(4.0)  # small, self-returning
+    nudged = dict(start)
+    nudged[joint] = start[joint] + delta
+    try:
+        # Two out-and-back cycles read as a deliberate wiggle, not drift.
+        for _ in range(2):
+            rb.stream_motion(host, port, command_topic, names, start, nudged,
+                             ramp_seconds=0.12, hold_seconds=0.06, rate_hz=30.0, timeout=5.0)
+            rb.stream_motion(host, port, command_topic, names, nudged, start,
+                             ramp_seconds=0.12, hold_seconds=0.06, rate_hz=30.0, timeout=5.0)
+    except Exception as exc:  # noqa: BLE001
+        return {"moved": False, "report": f"ping FAILED mid-move: {exc}"}
+
+    start_deg = start[joint] if units == "radians" else math.degrees(start[joint])
+    return {
+        "moved": True,
+        "joint": joint,
+        "report": (
+            f"pinged '{joint}' on {host}:{port} (±4° and back). If the arm did not "
+            f"move, its torque is off — cook the Robot node to arm it. Start pose "
+            f"{joint}={start_deg:.1f}{'rad' if units == 'radians' else '°'}."
+        ),
+    }
 
 
 def _stop_driver(run_id: str, release_torque: bool = False) -> int:

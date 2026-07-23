@@ -201,6 +201,30 @@ def test_driver_launcher_restarts_when_profile_command_changes():
         })
 
 
+def test_identify_robot_wiggles_a_joint_and_returns(monkeypatch):
+    from blacknode.pkg.blacknode_ros2 import rosbridge_runtime as rb
+    moves = []
+    monkeypatch.setattr(rb, "available", lambda: (True, ""))
+    monkeypatch.setattr(rb, "read_pose", lambda host, port, topic, timeout: {
+        "shoulder_pan": 0.1, "gripper": 0.0,
+    })
+    monkeypatch.setattr(rb, "stream_motion",
+                        lambda host, port, cmd, names, start, target, **k:
+                        moves.append((start["shoulder_pan"], target["shoulder_pan"])) or {"ok": True})
+
+    result = robot_nodes.identify_robot({
+        "host": "192.168.1.9", "port": 9090, "state_topic": "/joint_states",
+        "command_topic": "/joint_commands", "units": "degrees",
+    })
+
+    assert result["moved"] is True
+    assert result["joint"] == "shoulder_pan"
+    # Two out-and-back cycles, each ending exactly at the start pose.
+    assert len(moves) == 4
+    assert moves[0][0] == 0.1 and moves[0][1] != 0.1  # nudged away
+    assert moves[1] == (moves[0][1], 0.1)             # returned to start
+
+
 def test_driver_stop_releases_torque_over_rosbridge(monkeypatch):
     # Windows hard-kills the driver, skipping its SIGTERM torque-off handler, so a
     # stop must actively publish the driver's 'enter_teach' disarm first.
