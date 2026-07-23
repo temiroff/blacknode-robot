@@ -10,6 +10,7 @@ from __future__ import annotations
 import glob
 import base64
 import html
+import json
 import os
 import shlex
 import signal
@@ -45,6 +46,9 @@ _SERIAL_GLOBS = ("/dev/serial/by-id/*", "/dev/ttyACM*", "/dev/ttyUSB*")
 _COMMON_SERIAL_GROUPS = {"dialout", "uucp", "plugdev", "tty"}
 _managed_drivers: dict[str, subprocess.Popen] = {}
 _managed_driver_commands: dict[str, str] = {}
+# Connection facts kept per running driver so a stop can disarm it (release
+# torque) over rosbridge before killing the process — see _release_torque_best_effort.
+_managed_driver_meta: dict[str, dict[str, Any]] = {}
 _last_driver_exits: dict[str, dict[str, Any]] = {}
 
 
@@ -456,9 +460,42 @@ def _terminate_process(proc: subprocess.Popen) -> bool:
     return True
 
 
-def _stop_driver(run_id: str) -> int:
+def _release_torque_best_effort(run_id: str) -> None:
+    """Tell the driver to drop torque before we kill its process.
+
+    On Linux the driver's SIGTERM handler already disables torque on exit, but
+    on Windows subprocess termination is a hard kill that never runs the handler,
+    so the arm would stay stiff. Publishing the driver's own 'enter_teach'
+    control message over rosbridge releases torque regardless of platform. Purely
+    best-effort: if rosbridge isn't reachable or the transport is native, skip.
+    """
+    meta = _managed_driver_meta.get(run_id) or {}
+    if str(meta.get("transport") or "").lower() != "rosbridge":
+        return
+    control_topic = str(meta.get("control_topic") or "").strip()
+    if not control_topic:
+        return
+    try:
+        from blacknode.pkg.blacknode_ros2 import rosbridge_runtime as rb
+
+        rb.publish_string(
+            str(meta.get("host") or "127.0.0.1"),
+            int(meta.get("port") or 9090),
+            control_topic,
+            json.dumps({"action": "enter_teach"}),
+            timeout=2.0,
+        )
+    except Exception:
+        # A stop must never fail because the arm couldn't be reached to disarm.
+        pass
+
+
+def _stop_driver(run_id: str, release_torque: bool = False) -> int:
+    if release_torque:
+        _release_torque_best_effort(run_id)
     proc = _managed_drivers.pop(run_id, None)
     _managed_driver_commands.pop(run_id, None)
+    _managed_driver_meta.pop(run_id, None)
     if proc is None:
         return 0
     return 1 if _terminate_process(proc) else 0
@@ -506,7 +543,7 @@ def stop_runtime_services() -> dict[str, Any]:
     status_before = runtime_status()
     stopped = 0
     for run_id in list(_managed_drivers):
-        stopped += _stop_driver(run_id)
+        stopped += _stop_driver(run_id, release_torque=True)
     try:
         from .profiles import stop_calibration_services
 
@@ -697,13 +734,13 @@ def robot_driver_launcher(ctx: dict) -> dict:
     command = _driver_command(driver, serial_port)
 
     if action == "stop":
-        stopped = _stop_driver(run_id)
+        stopped = _stop_driver(run_id, release_torque=True)
         return {
             "running": False,
             "run_id": run_id,
             "driver": driver,
             "command": command,
-            "report": f"stopped {stopped} robot driver process(es)",
+            "report": f"stopped {stopped} robot driver process(es); torque released",
         }
 
     if action == "check":
@@ -773,6 +810,12 @@ def robot_driver_launcher(ctx: dict) -> dict:
         }
     _managed_drivers[run_id] = proc
     _managed_driver_commands[run_id] = command
+    _managed_driver_meta[run_id] = {
+        "transport": str(driver.get("transport") or "rosbridge"),
+        "host": str(driver.get("host") or "127.0.0.1"),
+        "port": int(driver.get("port") or 9090),
+        "control_topic": str(driver.get("control_topic") or "/robot_control"),
+    }
 
     wait_seconds = max(0.0, float(ctx.get("wait_seconds") or 0.0))
     if wait_seconds > 0:

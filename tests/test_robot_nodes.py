@@ -201,6 +201,32 @@ def test_driver_launcher_restarts_when_profile_command_changes():
         })
 
 
+def test_driver_stop_releases_torque_over_rosbridge(monkeypatch):
+    # Windows hard-kills the driver, skipping its SIGTERM torque-off handler, so a
+    # stop must actively publish the driver's 'enter_teach' disarm first.
+    run_id = "test_torque_release"
+    published = []
+    monkeypatch.setattr(robot_nodes, "_terminate_process", lambda proc: True)
+
+    from blacknode.pkg.blacknode_ros2 import rosbridge_runtime as rb
+    monkeypatch.setattr(rb, "publish_string", lambda host, port, topic, value, timeout=2.0:
+                        published.append((host, port, topic, json.loads(value))) or {"ok": True})
+
+    robot_nodes._managed_drivers[run_id] = SimpleNamespace(poll=lambda: None, pid=4321)
+    robot_nodes._managed_driver_meta[run_id] = {
+        "transport": "rosbridge", "host": "192.168.1.7", "port": 9090,
+        "control_topic": "/robot_control",
+    }
+    try:
+        # Explicit stop → releases torque; internal restart (default) would not.
+        robot_nodes._stop_driver(run_id, release_torque=True)
+        assert published == [("192.168.1.7", 9090, "/robot_control", {"action": "enter_teach"})]
+        assert run_id not in robot_nodes._managed_driver_meta
+    finally:
+        robot_nodes._managed_drivers.pop(run_id, None)
+        robot_nodes._managed_driver_meta.pop(run_id, None)
+
+
 def test_driver_launcher_preserves_late_exit_error():
     run_id = "test_late_driver_exit"
     proc = SimpleNamespace(
