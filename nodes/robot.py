@@ -12,6 +12,7 @@ import base64
 import html
 import json
 import os
+import re
 import shlex
 import signal
 import stat
@@ -110,9 +111,22 @@ def _pyserial_candidate_paths() -> list[str]:
     if serial_list_ports is None:
         return []
     try:
-        return [str(port.device) for port in serial_list_ports.comports() if str(port.device or "").strip()]
+        devices = [str(port.device) for port in serial_list_ports.comports() if str(port.device or "").strip()]
     except Exception:  # noqa: BLE001
         return []
+    # pyserial returns ports in registry/enumeration order, which is not stable
+    # on Windows — so 'selection: 0' could point at either arm and shift on
+    # replug. Sort so a numbered device (COM3 before COM4, ttyACM0 before
+    # ttyACM1) always maps to the same index. Two identical arms are still best
+    # pinned by serial via hardware_filter, but this makes plain index selection
+    # deterministic.
+    def _natural_key(device: str) -> tuple[str, int, str]:
+        match = re.search(r"(\d+)\D*$", device)
+        prefix = device[: match.start(1)] if match else device
+        number = int(match.group(1)) if match else -1
+        return (prefix.lower(), number, device.lower())
+
+    return sorted(devices, key=_natural_key)
 
 
 def _serial_path_exists(path: str, real: str) -> bool:
