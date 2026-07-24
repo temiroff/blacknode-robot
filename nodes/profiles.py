@@ -527,6 +527,8 @@ def robot_profile_save(ctx: dict) -> dict:
     inputs={
         "trigger": AnyPort,
         "profile_id": Enum(_available_profile_ids(), default="so_arm101"),
+        "profile": Dict,
+        "calibration": Dict,
         "selection": Int(default=0),
         "hardware": Dict,
         "usb": Dict,
@@ -561,8 +563,21 @@ def robot_profile_save(ctx: dict) -> dict:
     },
 )
 def robot_profile_load(ctx: dict) -> dict:
-    profile_id = _slug(ctx.get("profile_id") or "so_arm101")
-    profile, path = load_profile(profile_id)
+    supplied_profile = (
+        copy.deepcopy(ctx.get("profile"))
+        if isinstance(ctx.get("profile"), dict) and ctx.get("profile")
+        else None
+    )
+    profile_id = _slug(
+        (supplied_profile or {}).get("id")
+        or ctx.get("profile_id")
+        or "so_arm101"
+    )
+    if supplied_profile is not None:
+        profile = supplied_profile
+        path = None
+    else:
+        profile, path = load_profile(profile_id)
     if profile is None:
         known = ", ".join(item["id"] for item in list_profiles()) or "none"
         return {"found": False, "ready": False, "profile": {}, "driver": {}, "robot": {}, "hardware": {},
@@ -603,12 +618,72 @@ def robot_profile_load(ctx: dict) -> dict:
 
     effective_ctx = {**ctx, "hardware": hardware}
     hardware_id = _hardware_id(effective_ctx)
-    effective_profile = copy.deepcopy(profile)
+    supplied_calibration = (
+        copy.deepcopy(ctx.get("calibration"))
+        if isinstance(ctx.get("calibration"), dict) and ctx.get("calibration")
+        else None
+    )
+    if supplied_calibration is not None:
+        calibration_profile_id = str(
+            supplied_calibration.get("profile_id") or ""
+        ).strip()
+        calibration_hardware_id = str(
+            supplied_calibration.get("hardware_id") or ""
+        ).strip()
+        profile_joint_ids = {
+            str(joint.get("id") or "").strip()
+            for joint in _joint_list(profile)
+        }
+        calibration_joint_ids = set(
+            (supplied_calibration.get("joints") or {}).keys()
+            if isinstance(supplied_calibration.get("joints"), dict)
+            else []
+        )
+        if calibration_profile_id != str(profile.get("id") or ""):
+            return {
+                "found": False, "ready": False, "profile": {}, "driver": {},
+                "robot": {}, "hardware": hardware, "devices": devices,
+                "calibration": {}, "path": "",
+                "report": "embedded calibration profile does not match the Robot profile",
+            }
+        if not hardware_id or calibration_hardware_id != hardware_id:
+            return {
+                "found": False, "ready": False, "profile": {}, "driver": {},
+                "robot": {}, "hardware": hardware, "devices": devices,
+                "calibration": {}, "path": "",
+                "report": (
+                    "embedded calibration is bound to "
+                    f"{calibration_hardware_id or 'an unknown device'}, "
+                    f"but discovery selected {hardware_id or 'no hardware'}"
+                ),
+            }
+        if profile_joint_ids != calibration_joint_ids:
+            return {
+                "found": False, "ready": False, "profile": {}, "driver": {},
+                "robot": {}, "hardware": hardware, "devices": devices,
+                "calibration": {}, "path": "",
+                "report": "embedded calibration joints do not match the Robot profile",
+            }
+        effective_profile = _apply_calibration(profile, supplied_calibration)
+    else:
+        effective_profile = copy.deepcopy(profile)
     rate_override = float(ctx.get("rate_hz") or 0.0)
     if rate_override > 0:
         effective_profile.setdefault("driver", {})["rate_hz"] = rate_override
     supplied_driver = ctx.get("driver") if isinstance(ctx.get("driver"), dict) else {}
-    driver = dict(supplied_driver) or _driver_from_profile(effective_profile, hardware_id, str(ctx.get("topic_prefix") or ""))
+    if supplied_driver:
+        driver = dict(supplied_driver)
+        if supplied_calibration is not None:
+            driver["profile"] = copy.deepcopy(effective_profile)
+            driver["joints"] = _joint_list(effective_profile)
+            driver["hardware_id"] = hardware_id
+            driver["calibration_path"] = ""
+    else:
+        driver = _driver_from_profile(
+            effective_profile,
+            "" if supplied_calibration is not None else hardware_id,
+            str(ctx.get("topic_prefix") or ""),
+        )
     effective = dict(driver.get("profile") or profile)
     from .robot import robot_discovery
 
@@ -647,7 +722,13 @@ def robot_profile_load(ctx: dict) -> dict:
         "path": str(path or "builtin"),
         "report": (
             f"loaded robot profile '{profile_id}' ({len(_joint_list(effective))} joint(s))"
-            + (f"\ncalibration: {driver['calibration_path']}" if driver.get("calibration_path") else "\ncalibration: none")
+            + (
+                "\ncalibration: embedded deployment calibration"
+                if supplied_calibration is not None
+                else f"\ncalibration: {driver['calibration_path']}"
+                if driver.get("calibration_path")
+                else "\ncalibration: none"
+            )
             + (f"\nhardware: {hardware_id}" if hardware_id else "\nhardware: not connected")
             + (f"\n{discovery_report}" if discovery_report else "")
             + f"\n{connection.get('report', '')}"
@@ -858,6 +939,7 @@ def _session_outputs(session: dict[str, Any] | None, report: str, *, saved: bool
     inputs={
         "action": Enum(["check", "start", "pause", "capture_home", "finish", "cancel"], default="check"),
         "run_id": Text(default="robot_calibration"),
+        "calibration_name": Text(default=""),
         "profile": Dict,
         "hardware_id": Text(default=""),
         "hardware": Dict,
@@ -889,11 +971,14 @@ def _session_outputs(session: dict[str, Any] | None, report: str, *, saved: bool
 def robot_calibration_recorder(ctx: dict) -> dict:
     action = str(ctx.get("action") or "check").strip().lower()
     run_id = str(ctx.get("run_id") or "robot_calibration").strip() or "robot_calibration"
+    requested_name = " ".join(str(ctx.get("calibration_name") or "").split())[:96]
     pose = dict(ctx.get("pose") or {})
     torque_enabled = bool(ctx.get("torque_enabled", True))
     require_released = bool(ctx.get("require_released", True))
     with _calibration_lock:
         session = _calibration_sessions.get(run_id)
+        if session is not None and requested_name:
+            session["calibration_name"] = requested_name
         if action == "start":
             profile = copy.deepcopy(ctx.get("profile") if isinstance(ctx.get("profile"), dict) else {})
             errors = _validate_profile(profile)
@@ -920,6 +1005,10 @@ def robot_calibration_recorder(ctx: dict) -> dict:
                 "run_id": run_id,
                 "profile": profile,
                 "hardware_id": hardware_id,
+                "calibration_name": (
+                    requested_name
+                    or f"{str(profile.get('display_name') or profile.get('id') or 'Robot')} · {hardware_id}"
+                ),
                 "observed": {},
                 "home": {},
                 "samples": 0,
@@ -1009,6 +1098,7 @@ def robot_calibration_recorder(ctx: dict) -> dict:
                 return _session_outputs(session, "calibration not saved:\n- " + "\n- ".join(invalid))
             calibration = {
                 "schema_version": _PROFILE_SCHEMA,
+                "name": str(session.get("calibration_name") or session["hardware_id"]),
                 "profile_id": str(profile["id"]),
                 "hardware_id": str(session["hardware_id"]),
                 "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -1027,7 +1117,15 @@ def robot_calibration_recorder(ctx: dict) -> dict:
             session["path"] = str(path)
             session["active"] = False
             session["paused"] = False
-            return _session_outputs(session, f"saved calibration for {session['hardware_id']}\n{path}", saved=True, path=str(path))
+            return _session_outputs(
+                session,
+                (
+                    f"saved calibration '{calibration['name']}' "
+                    f"for {session['hardware_id']}\n{path}"
+                ),
+                saved=True,
+                path=str(path),
+            )
         if session.get("active"):
             report = "calibration recording is active and receiving live joint samples"
         elif session.get("paused"):
@@ -1048,6 +1146,7 @@ def calibration_runtime_status() -> dict[str, Any]:
                 "state": "recording" if session.get("active") else "paused" if session.get("paused") else "saved" if session.get("calibration") else "idle",
                 "samples": int(session.get("samples") or 0),
                 "hardware_id": str(session.get("hardware_id") or ""),
+                "calibration_name": str(session.get("calibration_name") or ""),
                 "profile_id": str(session.get("profile", {}).get("id") or ""),
                 "updated_at": session.get("updated_at"),
             }

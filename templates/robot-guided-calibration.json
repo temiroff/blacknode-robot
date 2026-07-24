@@ -8,7 +8,8 @@
     "template": true,
     "description": "Load a named robot, discover and start it, release torque explicitly, record hand-moved joint extrema, capture Home, and save reviewed safe limits per USB serial. Calibration never commands motion.",
     "color": "#f59e0b",
-    "required_packages": ["blacknode-controllers", "blacknode-robot", "blacknode-ros2"]
+    "required_packages": ["blacknode-controllers", "blacknode-robot", "blacknode-ros2"],
+    "required_capabilities": ["position_feedback", "servo_bus"]
   },
   "node_meta": {
     "robot": {
@@ -50,14 +51,14 @@
     "calibration": {
       "id": "calibration", "type": "RobotCalibrationRecorder", "pos": [1960, 90],
       "params": {
-        "action": "check", "run_id": "robot_calibration", "hardware_id": "", "require_released": true,
+        "action": "check", "run_id": "robot_calibration", "calibration_name": "Workshop arm", "hardware_id": "", "require_released": true,
         "safety_margin_deg": 3.0
       },
-      "inputs": ["action", "run_id", "profile", "hardware_id", "hardware", "pose", "torque_enabled", "require_released", "safety_margin_deg"],
+      "inputs": ["action", "run_id", "calibration_name", "profile", "hardware_id", "hardware", "pose", "torque_enabled", "require_released", "safety_margin_deg"],
       "outputs": ["live", "state", "active", "data_ready", "samples", "pose", "capturing_joint", "range_updates", "observed", "home", "calibration", "profile", "driver", "saved", "path", "dashboard", "report"],
-      "input_types": {"action": "Text", "run_id": "Text", "profile": "Dict", "hardware_id": "Text", "hardware": "Dict", "pose": "Dict", "torque_enabled": "Bool", "require_released": "Bool", "safety_margin_deg": "Float"},
+      "input_types": {"action": "Text", "run_id": "Text", "calibration_name": "Text", "profile": "Dict", "hardware_id": "Text", "hardware": "Dict", "pose": "Dict", "torque_enabled": "Bool", "require_released": "Bool", "safety_margin_deg": "Float"},
       "output_types": {"live": "Bool", "state": "Text", "active": "Bool", "data_ready": "Bool", "samples": "Int", "pose": "Dict", "capturing_joint": "Text", "range_updates": "Dict", "observed": "Dict", "home": "Dict", "calibration": "Dict", "profile": "Dict", "driver": "Dict", "saved": "Bool", "path": "Text", "dashboard": "Image", "report": "Text"},
-      "input_defaults": {"action": "check", "run_id": "robot_calibration", "hardware_id": "", "torque_enabled": true, "require_released": true, "safety_margin_deg": 3.0},
+      "input_defaults": {"action": "check", "run_id": "robot_calibration", "calibration_name": "", "hardware_id": "", "torque_enabled": true, "require_released": true, "safety_margin_deg": 3.0},
       "input_choices": {"action": ["check", "start", "pause", "capture_home", "finish", "cancel"]}
     },
     "out": {
