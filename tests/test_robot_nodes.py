@@ -615,6 +615,17 @@ def test_robot_applies_embedded_calibration_only_to_matching_hardware(monkeypatc
     assert result["driver"]["joints"][0]["home_ticks"] == 2000
     assert "embedded deployment calibration" in result["report"]
 
+    deployed = _NODE_REGISTRY["Robot"]({
+        "profile": profile,
+        "calibration": calibration,
+        "hardware": hardware,
+        "auto_discover": False,
+        "action": "check",
+    })
+
+    assert deployed["driver"]["hardware_id"] == "SERIAL-42"
+    assert deployed["robot"]["driver"]["hardware_id"] == "SERIAL-42"
+
     rejected_calibration = dict(calibration)
     rejected_calibration["hardware_id"] = "OTHER-SERIAL"
     rejected = _NODE_REGISTRY["Robot"]({

@@ -684,6 +684,14 @@ def robot_profile_load(ctx: dict) -> dict:
             "" if supplied_calibration is not None else hardware_id,
             str(ctx.get("topic_prefix") or ""),
         )
+        if supplied_calibration is not None:
+            # A deployment embeds the selected calibration because the target
+            # does not share the editor's local calibration files. Preserve
+            # the separately verified physical identity on the driver
+            # contract so downstream safety gates can bind commands to this
+            # exact robot.
+            driver["hardware_id"] = hardware_id
+            driver["calibration_path"] = ""
     effective = dict(driver.get("profile") or profile)
     from .robot import robot_discovery
 
