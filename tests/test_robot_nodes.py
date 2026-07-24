@@ -567,6 +567,66 @@ def test_robot_automatically_selects_hardware_and_checks_connection(monkeypatch)
     assert seen["action"] == "check"
 
 
+def test_robot_applies_embedded_calibration_only_to_matching_hardware(monkeypatch):
+    profile = profile_nodes.builtin_profile("so_arm101")
+    calibration = {
+        "schema_version": 1,
+        "profile_id": profile["id"],
+        "hardware_id": "SERIAL-42",
+        "joints": {
+            joint["id"]: {
+                "home_ticks": 2000 + index,
+                "safe_min_deg": -50.0,
+                "safe_max_deg": 50.0,
+            }
+            for index, joint in enumerate(profile["joints"])
+        },
+    }
+    hardware = {
+        "found": True,
+        "ready": True,
+        "port": "COM7",
+        "serial": "SERIAL-42",
+        "devices": [{"path": "COM7", "serial": "SERIAL-42", "accessible": True}],
+        "recommended": {"path": "COM7", "serial": "SERIAL-42", "accessible": True},
+        "report": "found",
+    }
+    monkeypatch.setattr(robot_nodes, "robot_usb_discovery", lambda _ctx: hardware)
+    monkeypatch.setattr(robot_nodes, "robot_discovery", lambda ctx: {
+        "ready": False,
+        "usb_ready": True,
+        "driver_running": False,
+        "robot": {"ready": False, "driver": ctx["driver"]},
+        "report": "driver checked",
+    })
+
+    result = _NODE_REGISTRY["Robot"]({
+        "profile": profile,
+        "calibration": calibration,
+        "driver": {"driver": "blacknode_drivers.feetech", "run_id": "embedded-test"},
+        "action": "check",
+    })
+
+    assert result["found"] is True
+    assert result["calibration"]["hardware_id"] == "SERIAL-42"
+    assert result["profile"]["joints"][0]["home_ticks"] == 2000
+    assert result["profile"]["joints"][0]["safe_min_deg"] == -50.0
+    assert result["driver"]["run_id"] == "embedded-test"
+    assert result["driver"]["joints"][0]["home_ticks"] == 2000
+    assert "embedded deployment calibration" in result["report"]
+
+    rejected_calibration = dict(calibration)
+    rejected_calibration["hardware_id"] = "OTHER-SERIAL"
+    rejected = _NODE_REGISTRY["Robot"]({
+        "profile": profile,
+        "calibration": rejected_calibration,
+        "action": "check",
+    })
+
+    assert rejected["found"] is False
+    assert "discovery selected SERIAL-42" in rejected["report"]
+
+
 def test_profile_duplicate_turns_builtin_into_editable_local_robot(monkeypatch, tmp_path):
     monkeypatch.setenv("BLACKNODE_ROBOTS_DIR", str(tmp_path / "robots"))
 
@@ -618,6 +678,7 @@ def test_calibration_records_extrema_home_margin_and_device_file(monkeypatch, tm
     started = _NODE_REGISTRY["RobotCalibrationRecorder"]({
         "action": "start",
         "run_id": run_id,
+        "calibration_name": "Workbench left arm",
         "profile": profile,
         "hardware_id": "USB ABC-123",
         "pose": {"shoulder_pan": 0.0, "shoulder_lift": 0.0},
@@ -651,6 +712,7 @@ def test_calibration_records_extrema_home_margin_and_device_file(monkeypatch, tm
     assert finished["active"] is False
     assert finished["live"] is True
     assert finished["state"] == "saved"
+    assert finished["calibration"]["name"] == "Workbench left arm"
     after_save = _NODE_REGISTRY["RobotCalibrationRecorder"]({
         "action": "_sample",
         "run_id": run_id,
@@ -663,6 +725,7 @@ def test_calibration_records_extrema_home_margin_and_device_file(monkeypatch, tm
     assert after_save["pose"] == {"shoulder_pan": 6.0, "shoulder_lift": 11.0}
     path = tmp_path / "robots" / "calibration_arm" / "calibrations" / "usb_abc_123.json"
     assert path.exists()
+    assert json.loads(path.read_text(encoding="utf-8"))["name"] == "Workbench left arm"
     shoulder = finished["calibration"]["joints"]["shoulder_pan"]
     assert shoulder["observed_min_deg"] == -25.0
     assert shoulder["observed_max_deg"] == 35.0

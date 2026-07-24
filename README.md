@@ -65,6 +65,13 @@ The selected entry's serial number (or port path when no serial is available)
 becomes the robot's `hardware_id`; discovery's index-0 shortcut values never
 override a different selected entry.
 
+For remote deployment, declare the device capabilities and choose calibration
+in the editor's **Deployments** panel. **Activate on device** binds the saved
+calibration to the paired device while it is connected and disarmed. Staging
+then embeds that exact robot profile and calibration in the workflow. The
+remote `Robot` node applies the embedded home positions and safe ranges only
+when discovery returns the same physical hardware identity.
+
 The Properties panel keeps transport controls under **Advanced**. They are not
 required for normal setup: `probe_open` actively opens candidate serial ports
 for diagnostics, vendor/product IDs narrow discovery to a USB adapter model,
@@ -170,18 +177,20 @@ configuration.
 
 Open **Robot Guided Calibration** after saving a profile:
 
-1. Load the profile and start discovery with the robot connected.
-2. Press **Release + live pose** on Manual Move and physically support the arm.
-3. Confirm live joint values are changing, then press **Start recording**.
-4. Slowly move every joint through the safe physical range you intend to use.
+1. Enter a clear **Calibration name**, such as `Workshop arm` or
+   `Left SO-ARM101`.
+2. Load the profile and start discovery with the robot connected.
+3. Press **Release + live pose** on Manual Move and physically support the arm.
+4. Confirm live joint values are changing, then press **Start recording**.
+5. Slowly move every joint through the safe physical range you intend to use.
    Do not force a hard stop.
-5. Put the robot in the pose that should read as zero and press **Capture Home**.
-6. Press **Stop recording** whenever you want to pause extrema collection
+6. Put the robot in the pose that should read as zero and press **Capture Home**.
+7. Press **Stop recording** whenever you want to pause extrema collection
    without losing samples. Current pose remains live; press **Resume recording**
    to continue.
-7. Press **Save calibration**. The recorder applies the configured safety
-   margin inside the observed extrema and saves it under the hardware ID.
-8. Press **Hold position** only while the arm is supported and the workspace is
+8. Press **Save calibration**. The recorder applies the configured safety
+   margin inside the observed extrema and saves the name with its hardware ID.
+9. Press **Hold position** only while the arm is supported and the workspace is
    clear.
 
 Recording never commands movement. It refuses to start while torque is on, and
