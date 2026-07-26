@@ -892,4 +892,4 @@ def test_custom_robot_templates_validate():
     ):
         workflow = json.loads((templates / name).read_text(encoding="utf-8"))
         report = validate_workflow(workflow)
-        assert report.ok, (name, [issue.message for issue in report.issues])
+        assert report.ok, (name, [issue.message for issue in report.errors])
