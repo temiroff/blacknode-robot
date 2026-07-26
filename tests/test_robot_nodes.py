@@ -20,6 +20,7 @@ EXPECTED_NODES = [
     "RobotDriverPreset",
     "Robot",
     "RobotConnectionDashboard",
+    "RobotROSInterfaceCheck",
     "RobotJointDefinition",
     "RobotJointList",
     "RobotDefinition",
@@ -36,6 +37,48 @@ def test_robot_nodes_registered_with_category():
         assert name in _NODE_REGISTRY, name
         assert _NODE_REGISTRY[name]._bn_category == "Robot"
         assert _NODE_REGISTRY[name]._bn_package == "blacknode-robot"
+
+
+def test_rosorin_interface_check_matches_documented_topic_variants():
+    result = _NODE_REGISTRY["RobotROSInterfaceCheck"]({
+        "preset": "hiwonder_rosorin_pro",
+        "topics": [
+            "/controller/cmd_vel [geometry_msgs/msg/Twist]",
+            "/odom_raw [nav_msgs/msg/Odometry]",
+            "/scan [sensor_msgs/msg/LaserScan]",
+            "/ros_robot_controller/imu_raw [sensor_msgs/msg/Imu]",
+            "/depth_cam/rgb0/image_raw [sensor_msgs/msg/Image]",
+            "/depth_cam/depth0/image_raw [sensor_msgs/msg/Image]",
+            "/depth_cam/depth0/camera_info [sensor_msgs/msg/CameraInfo]",
+            "/servo_controller11 [servo_controller_msgs/msg/ServosPosition]",
+            "/ros_robot_controller/set_buzzer [ros_robot_controller_msgs/msg/BuzzerState]",
+        ],
+        "nodes": ["/controller", "/nav2_controller"],
+        "services": [
+            "/kinematics/set_pose_target [kinematics_msgs/srv/SetRobotPose]",
+            "/depth_cam/set_ldp_enable [std_srvs/srv/SetBool]",
+        ],
+    })
+
+    assert result["ready"] is True
+    assert result["missing"] == ["slam", "voice"]
+    assert result["bindings"]["capabilities"]["rgb_camera"]["matched"] == "/depth_cam/rgb0/image_raw"
+    assert result["bindings"]["capabilities"]["arm_command"]["matched"] == "/servo_controller11"
+    assert "No motion command was sent" not in result["report"]
+
+
+def test_rosorin_interface_check_reports_missing_without_claiming_hardware():
+    result = _NODE_REGISTRY["RobotROSInterfaceCheck"]({
+        "topics": ["/rosout [rcl_interfaces/msg/Log]"],
+        "nodes": [],
+        "services": [],
+    })
+
+    assert result["ready"] is False
+    assert "mobile_base" in result["missing"]
+    assert "rgb_camera" in result["missing"]
+    assert result["capabilities"] == []
+    assert "No motion command was sent" in result["report"]
 
 
 def test_usb_discovery_reports_no_devices(monkeypatch):
@@ -843,9 +886,10 @@ def test_custom_robot_templates_validate():
     templates = Path(__file__).resolve().parents[1] / "templates"
     for name in (
         "editable-so-arm101-profile.json",
+        "hiwonder-rosorin-pro-readiness.json",
         "robot-guided-calibration.json",
         "so-arm101-motion-test.json",
     ):
         workflow = json.loads((templates / name).read_text(encoding="utf-8"))
         report = validate_workflow(workflow)
-        assert report.ok, (name, [issue.message for issue in report.issues])
+        assert report.ok, (name, [issue.message for issue in report.errors])

@@ -50,6 +50,33 @@ and verification commands.
 | `RobotCalibrationRecorder` | Safely records released-arm limits and a home pose for one physical robot |
 | `RobotDriverLauncher` | Starts/stops a driver process from the descriptor |
 | `RobotConnectionDashboard` | Shows USB, driver, ROS interface, live joint positions, home references, safe ranges, and calibration source in one view |
+| `RobotROSInterfaceCheck` | Matches a live ROS graph to a supported robot interface profile without publishing commands |
+
+## Hiwonder ROSOrin Pro
+
+Open the **Hiwonder ROSOrin Pro Readiness** template after Blacknode is
+deployed to the robot and the vendor ROS 2 services are running. The workflow
+is read-only. It inventories the live topics, nodes, and services, then checks
+the documented interfaces for:
+
+- Mecanum base velocity and odometry
+- TOF LiDAR and chassis IMU
+- RGB, depth, and camera-calibration streams
+- 6DOF arm command and inverse-kinematics interfaces
+- navigation, SLAM, voice interaction, and the controller buzzer
+
+The vendor software uses more than one RGB/depth namespace across controller
+images. The readiness profile accepts both `rgb`/`depth` and `rgb0`/`depth0`
+layouts and records the exact live binding in its `bindings` output. Keep base
+and arm motion disarmed until this discovery passes and the physical unit's
+feedback, calibration, joint limits, command expiry, and stop behavior have
+been verified.
+
+The template also captures one frame from
+`/depth_cam/rgb/image_raw`. If the readiness output selects
+`/depth_cam/rgb0/image_raw`, update the camera node to that discovered topic.
+Navigation, SLAM, kinematics, and voice entries may show `ON DEMAND` until the
+corresponding vendor launch file is active.
 
 Changing the generic `Robot.profile_id` invalidates the old dashboard. Press
 **Run** to apply it: if its generated driver command differs, Blacknode safely
