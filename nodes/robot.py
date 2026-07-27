@@ -755,6 +755,7 @@ def robot_usb_discovery(ctx: dict) -> dict:
         "config_topic": Text(default="/joint_config"),
         "control_topic": Text(default="/robot_control"),
         "units": Enum(["radians", "degrees"], default="degrees"),
+        "read_only": Bool(default=False),
         "match_vendor_id": Text(default=""),
         "match_product_id": Text(default=""),
     },
@@ -773,6 +774,7 @@ def robot_driver_descriptor(ctx: dict) -> dict:
         "config_topic": str(ctx.get("config_topic") or "/joint_config"),
         "control_topic": str(ctx.get("control_topic") or "/robot_control"),
         "units": str(ctx.get("units") or "degrees"),
+        "read_only": bool(ctx.get("read_only", False)),
         "match": {
             "vendor_id": str(ctx.get("match_vendor_id") or "").strip().lower(),
             "product_id": str(ctx.get("match_product_id") or "").strip().lower(),
