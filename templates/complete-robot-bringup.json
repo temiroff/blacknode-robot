@@ -12,10 +12,12 @@
     "description": "One-click robot setup. Blacknode discovers the connected hardware, safely selects its bound profile, starts the disarmed driver, inventories ROS 2, and reports capability readiness.",
     "color": "#14b8a6",
     "required_packages": [
+      "blacknode-drivers",
       "blacknode-robot",
       "blacknode-ros2"
     ],
     "required_components": [
+      "blacknode-drivers/feetech@ros2",
       "blacknode-robot/capabilities",
       "blacknode-ros2/core",
       "blacknode-ros2/diagnostics",
