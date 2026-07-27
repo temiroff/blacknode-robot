@@ -20,6 +20,7 @@ EXPECTED_NODES = [
     "RobotDriverPreset",
     "Robot",
     "RobotConnectionDashboard",
+    "RobotMonitor",
     "RobotROSInterfaceCheck",
     "RobotJointDefinition",
     "RobotJointList",
@@ -37,6 +38,23 @@ def test_robot_nodes_registered_with_category():
         assert name in _NODE_REGISTRY, name
         assert _NODE_REGISTRY[name]._bn_category == "Robot"
         assert _NODE_REGISTRY[name]._bn_package == "blacknode-robot"
+
+
+def test_robot_monitor_exposes_a_read_only_portable_target():
+    fn = _NODE_REGISTRY["RobotMonitor"]
+
+    result = fn({"robot_id": "robot-2", "robot_name": "Workshop arm"})
+
+    assert result["robot"] == {
+        "kind": "blacknode.robot-monitor-target",
+        "schema_version": 1,
+        "robot_id": "robot-2",
+        "robot_name": "Workshop arm",
+        "configured": True,
+    }
+    assert fn._bn_component == "capabilities"
+    assert fn._bn_primary_inputs == []
+    assert fn._bn_primary_outputs == ["robot"]
 
 
 def test_rosorin_interface_check_matches_documented_topic_variants():

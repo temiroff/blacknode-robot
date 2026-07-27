@@ -50,6 +50,7 @@ and verification commands.
 | `RobotCalibrationRecorder` | Safely records released-arm limits and a home pose for one physical robot |
 | `RobotDriverLauncher` | Starts/stops a driver process from the descriptor |
 | `RobotConnectionDashboard` | Shows USB, driver, ROS interface, live joint positions, home references, safe ranges, and calibration source in one view |
+| `RobotMonitor` | Opens a read-only live canvas view for a registered robot's connection, motion state, telemetry, streams, and joints |
 | `RobotROSInterfaceCheck` | Matches a live ROS graph to a supported robot interface profile without publishing commands |
 
 ## Hiwonder ROSOrin Pro
