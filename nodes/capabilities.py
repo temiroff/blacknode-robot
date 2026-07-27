@@ -3,10 +3,70 @@ from __future__ import annotations
 
 import copy
 import re
+import time
 from typing import Any
 
-from blacknode.contracts import robot_capability_binding, robot_capability_status
 from blacknode.node import Bool, Dict, Int, List, Text, node
+
+try:
+    from blacknode.contracts import (
+        robot_capability_binding,
+        robot_capability_status,
+    )
+except ImportError:
+    # Blacknode 0.3.0-0.3.8 predate these dependency-light constructors.
+    # Keep package discovery and the stable wire shape available until core is
+    # updated; providers still use the same versioned contracts.
+    def robot_capability_binding(
+        capability: str,
+        *,
+        provider_package: str,
+        provider_component: str,
+        provider_adapter: str = "",
+        configuration: dict[str, Any] | None = None,
+        hardware_identity: dict[str, Any] | None = None,
+        required: bool = True,
+    ) -> dict[str, Any]:
+        return {
+            "kind": "blacknode.robot-capability-binding",
+            "schema_version": 1,
+            "capability": capability,
+            "provider": {
+                "package": provider_package,
+                "component": provider_component,
+                "adapter": provider_adapter,
+            },
+            "configuration": dict(configuration or {}),
+            "hardware_identity": dict(hardware_identity or {}),
+            "required": required,
+        }
+
+    def robot_capability_status(
+        capability: str,
+        *,
+        state: str,
+        provider: dict[str, Any] | None = None,
+        required: bool = True,
+        reason: str = "",
+        hardware_identity: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        if state not in {"available", "unavailable", "unhealthy"}:
+            raise ValueError(f"unsupported robot capability state: {state!r}")
+        return {
+            "kind": "blacknode.robot-capability-status",
+            "schema_version": 1,
+            "capability": capability,
+            "state": state,
+            "available": state == "available",
+            "provider": dict(provider or {}),
+            "required": required,
+            "reason": reason,
+            "hardware_identity": dict(hardware_identity or {}),
+            "checked_at": time.strftime(
+                "%Y-%m-%dT%H:%M:%SZ",
+                time.gmtime(),
+            ),
+        }
 
 
 _CATEGORY = "Robot"

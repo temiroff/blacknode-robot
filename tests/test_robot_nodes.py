@@ -1,6 +1,7 @@
 import base64
 import io
 import json
+import runpy
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -42,6 +43,31 @@ def test_robot_nodes_registered_with_category():
         assert name in _NODE_REGISTRY, name
         assert _NODE_REGISTRY[name]._bn_category == "Robot"
         assert _NODE_REGISTRY[name]._bn_package == "blacknode-robot"
+
+
+def test_capability_contracts_load_on_older_blacknode_core(monkeypatch):
+    import blacknode.contracts as contracts
+
+    monkeypatch.delattr(contracts, "robot_capability_binding")
+    monkeypatch.delattr(contracts, "robot_capability_status")
+    values = runpy.run_path(
+        str(Path(profile_nodes.__file__).with_name("capabilities.py"))
+    )
+
+    binding = values["robot_capability_binding"](
+        "camera",
+        provider_package="blacknode-perception",
+        provider_component="camera",
+    )
+    status = values["robot_capability_status"](
+        "camera",
+        state="unavailable",
+        provider=binding["provider"],
+    )
+
+    assert binding["kind"] == "blacknode.robot-capability-binding"
+    assert status["kind"] == "blacknode.robot-capability-status"
+    assert status["available"] is False
 
 
 def test_robot_monitor_exposes_a_read_only_portable_target():
