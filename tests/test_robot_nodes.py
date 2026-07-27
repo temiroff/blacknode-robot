@@ -22,6 +22,10 @@ EXPECTED_NODES = [
     "RobotConnectionDashboard",
     "RobotMonitor",
     "RobotROSInterfaceCheck",
+    "RobotCapabilityBinding",
+    "RobotCapabilityList",
+    "RobotCapabilityProfile",
+    "RobotCapabilityInspect",
     "RobotJointDefinition",
     "RobotJointList",
     "RobotDefinition",
@@ -57,35 +61,279 @@ def test_robot_monitor_exposes_a_read_only_portable_target():
     assert fn._bn_primary_outputs == ["robot"]
 
 
-def test_rosorin_interface_check_matches_documented_topic_variants():
-    result = _NODE_REGISTRY["RobotROSInterfaceCheck"]({
-        "preset": "hiwonder_rosorin_pro",
-        "topics": [
-            "/controller/cmd_vel [geometry_msgs/msg/Twist]",
-            "/odom_raw [nav_msgs/msg/Odometry]",
-            "/scan [sensor_msgs/msg/LaserScan]",
-            "/ros_robot_controller/imu_raw [sensor_msgs/msg/Imu]",
-            "/depth_cam/rgb0/image_raw [sensor_msgs/msg/Image]",
-            "/depth_cam/depth0/image_raw [sensor_msgs/msg/Image]",
-            "/depth_cam/depth0/camera_info [sensor_msgs/msg/CameraInfo]",
-            "/servo_controller11 [servo_controller_msgs/msg/ServosPosition]",
-            "/ros_robot_controller/set_buzzer [ros_robot_controller_msgs/msg/BuzzerState]",
-        ],
-        "nodes": ["/controller", "/nav2_controller"],
-        "services": [
-            "/kinematics/set_pose_target [kinematics_msgs/srv/SetRobotPose]",
-            "/depth_cam/set_ldp_enable [std_srvs/srv/SetBool]",
-        ],
+def _capability_binding(
+    capability: str,
+    component: str,
+    *,
+    package: str = "blacknode-perception",
+    state_key: str = "",
+    interfaces: list[dict] | None = None,
+    hardware_id: str = "",
+    required: bool = True,
+):
+    configuration = {"state_key": state_key} if state_key else {}
+    if interfaces is not None:
+        configuration["ros2_interfaces"] = interfaces
+    return _NODE_REGISTRY["RobotCapabilityBinding"]({
+        "capability": capability,
+        "provider_package": package,
+        "provider_component": component,
+        "provider_adapter": "ros2",
+        "configuration": configuration,
+        "hardware_id": hardware_id,
+        "required": required,
+    })["binding"]
+
+
+def test_capability_bindings_attach_replaceable_providers_to_profile():
+    camera = _capability_binding("RGB Camera", "camera", state_key="rgb_camera")
+    lidar = _capability_binding("LiDAR", "lidar")
+    collected = _NODE_REGISTRY["RobotCapabilityList"]({
+        "binding_2": lidar,
+        "binding_1": camera,
+    })
+    result = _NODE_REGISTRY["RobotCapabilityProfile"]({
+        "profile_id": "mobile lab",
+        "display_name": "Mobile Lab",
+        "bindings": collected["bindings"],
+        "hardware_id": "ROBOT-001",
+    })
+
+    assert result["valid"] is True
+    assert result["profile"]["kind"] == "blacknode.robot-profile"
+    assert result["profile"]["id"] == "mobile_lab"
+    assert result["profile"]["profile_id"] == "mobile_lab"
+    assert result["profile"]["capabilities"] == ["rgb_camera", "lidar"]
+    assert result["profile"]["hardware_identity"]["id"] == "ROBOT-001"
+    assert result["profile"]["capability_bindings"]["rgb_camera"]["provider"] == {
+        "package": "blacknode-perception",
+        "component": "camera",
+        "adapter": "ros2",
+    }
+
+
+def test_capability_only_profile_can_be_saved_and_loaded(monkeypatch, tmp_path):
+    monkeypatch.setenv("BLACKNODE_ROBOTS_DIR", str(tmp_path / "robots"))
+    binding = _capability_binding("camera", "camera")
+    profile = _NODE_REGISTRY["RobotCapabilityProfile"]({
+        "profile_id": "sensor_platform",
+        "display_name": "Sensor Platform",
+        "bindings": [binding],
+    })["profile"]
+
+    saved = _NODE_REGISTRY["RobotProfileSave"]({"profile": profile})
+    loaded = _NODE_REGISTRY["RobotProfileLoad"]({
+        "profile_id": "sensor_platform",
+        "auto_discover": False,
+        "require_hardware": False,
+    })
+
+    assert saved["saved"] is True
+    assert loaded["found"] is True
+    assert loaded["profile"]["capabilities"] == ["camera"]
+    assert loaded["profile"]["capability_bindings"]["camera"]["provider"]["component"] == "camera"
+
+
+def test_capability_inspection_degrades_missing_provider_to_unavailable():
+    binding = _capability_binding("lidar", "lidar")
+    profile = _NODE_REGISTRY["RobotCapabilityProfile"]({
+        "profile_id": "mobile_robot",
+        "bindings": [binding],
+    })["profile"]
+
+    result = _NODE_REGISTRY["RobotCapabilityInspect"]({
+        "profile": profile,
+        "provider_states": {},
+        "installed_components": ["blacknode-perception/lidar@ros2"],
+    })
+
+    assert result["ready"] is False
+    assert result["available"] == []
+    assert result["unavailable"] == ["lidar"]
+    assert result["unhealthy"] == []
+    assert result["capabilities"][0]["kind"] == "blacknode.robot-capability-status"
+    assert result["capabilities"][0]["reason"] == "provider readiness was not reported"
+    assert "No motion was authorized or commanded" in result["report"]
+
+
+def test_capability_inspection_reports_unconfigured_profile_without_assuming_shape():
+    result = _NODE_REGISTRY["RobotCapabilityInspect"]({
+        "profile": {
+            "kind": "blacknode.robot-profile",
+            "schema_version": 1,
+            "id": "generic_robot",
+            "capability_bindings": {},
+        },
+    })
+
+    assert result["ready"] is False
+    assert result["capabilities"] == []
+    assert result["summary"]["total"] == 0
+    assert "profile determines the robot's shape" in result["report"]
+    assert "UNCONFIGURED" in result["report"]
+
+
+def test_capability_inspection_requires_declared_component_when_inventory_is_supplied():
+    binding = _capability_binding(
+        "mobile_base",
+        "mobile-base",
+        package="blacknode-controllers",
+    )
+    profile = _NODE_REGISTRY["RobotCapabilityProfile"]({
+        "profile_id": "mobile_robot",
+        "bindings": [binding],
+    })["profile"]
+
+    result = _NODE_REGISTRY["RobotCapabilityInspect"]({
+        "profile": profile,
+        "provider_states": {"mobile_base": {"available": True}},
+        "installed_components": ["blacknode-perception/camera@ros2"],
+    })
+
+    assert result["ready"] is False
+    assert result["unavailable"] == ["mobile_base"]
+    assert "blacknode-controllers/mobile-base@ros2 is not installed" in result["report"]
+
+
+def test_capability_inspection_consumes_generic_live_interface_report():
+    bindings = [
+        _capability_binding(
+            "camera",
+            "camera",
+            interfaces=[{"kind": "topic", "candidates": ["/camera/image_raw"]}],
+        ),
+        _capability_binding(
+            "lidar",
+            "lidar",
+            interfaces=[{"kind": "topic", "candidates": ["/scan"]}],
+        ),
+        _capability_binding(
+            "mobile_base",
+            "mobile-base",
+            package="blacknode-controllers",
+            interfaces=[{"kind": "topic", "candidates": ["/cmd_vel"]}],
+        ),
+    ]
+    profile = _NODE_REGISTRY["RobotCapabilityProfile"]({
+        "profile_id": "generic_robot",
+        "bindings": bindings,
+    })["profile"]
+    interface = _NODE_REGISTRY["RobotROSInterfaceCheck"]({
+        "profile": profile,
+        "topics": ["/camera/image_raw", "/scan", "/cmd_vel"],
+        "nodes": [],
+        "services": [],
+    })
+
+    result = _NODE_REGISTRY["RobotCapabilityInspect"]({
+        "profile": profile,
+        "provider_states": interface["bindings"],
     })
 
     assert result["ready"] is True
-    assert result["missing"] == ["slam", "voice"]
-    assert result["bindings"]["capabilities"]["rgb_camera"]["matched"] == "/depth_cam/rgb0/image_raw"
-    assert result["bindings"]["capabilities"]["arm_command"]["matched"] == "/servo_controller11"
+    assert result["available"] == ["camera", "lidar", "mobile_base"]
+    assert result["unavailable"] == []
+    assert all(item["state"] == "available" for item in result["capabilities"])
+
+
+def test_capability_provider_contract_is_identical_for_simulation_and_replay():
+    binding = _capability_binding("imu", "imu")
+    profile = _NODE_REGISTRY["RobotCapabilityProfile"]({
+        "profile_id": "hardware_free",
+        "bindings": [binding],
+    })["profile"]
+
+    for source in ("simulation", "replay"):
+        result = _NODE_REGISTRY["RobotCapabilityInspect"]({
+            "profile": profile,
+            "provider_states": {
+                "imu": {
+                    "state": "available",
+                    "healthy": True,
+                    "source": source,
+                },
+            },
+        })
+        assert result["ready"] is True
+        assert result["capabilities"][0]["state"] == "available"
+        assert result["capabilities"][0]["provider"] == binding["provider"]
+
+
+def test_capability_inspection_rejects_wrong_physical_hardware_identity():
+    binding = _capability_binding(
+        "camera",
+        "camera",
+        hardware_id="CAMERA-SERIAL-1",
+    )
+    profile = _NODE_REGISTRY["RobotCapabilityProfile"]({
+        "profile_id": "identity_bound",
+        "bindings": [binding],
+    })["profile"]
+
+    result = _NODE_REGISTRY["RobotCapabilityInspect"]({
+        "profile": profile,
+        "hardware_id": "CAMERA-SERIAL-2",
+        "provider_states": {"camera": {"available": True}},
+    })
+
+    assert result["ready"] is False
+    assert result["unhealthy"] == ["camera"]
+    assert "bound to CAMERA-SERIAL-1" in result["capabilities"][0]["reason"]
+
+
+def test_generic_interface_check_matches_common_topic_variants():
+    bindings = [
+        _capability_binding(
+            "camera",
+            "camera",
+            interfaces=[{
+                "kind": "topic",
+                "candidates": ["/camera/image_raw", "/camera0/image_raw"],
+            }],
+        ),
+        _capability_binding(
+            "arm",
+            "joint-control",
+            package="blacknode-controllers",
+            interfaces=[{
+                "kind": "topic",
+                "candidates": ["/arm/command", "/arm0/command"],
+            }],
+        ),
+        _capability_binding(
+            "navigation",
+            "navigation",
+            package="blacknode-controllers",
+            required=False,
+            interfaces=[{
+                "kind": "node",
+                "contains": ["navigator"],
+                "required": False,
+            }],
+        ),
+    ]
+    profile = _NODE_REGISTRY["RobotCapabilityProfile"]({
+        "profile_id": "configured_robot",
+        "bindings": bindings,
+    })["profile"]
+    result = _NODE_REGISTRY["RobotROSInterfaceCheck"]({
+        "profile": profile,
+        "topics": [
+            "/camera0/image_raw [sensor_msgs/msg/Image]",
+            "/arm0/command [example_msgs/msg/JointCommand]",
+        ],
+        "nodes": ["/navigator"],
+        "services": [],
+    })
+
+    assert result["ready"] is True
+    assert result["missing"] == []
+    assert result["bindings"]["capabilities"]["camera"]["matched"] == "/camera0/image_raw"
+    assert result["bindings"]["capabilities"]["arm"]["matched"] == "/arm0/command"
     assert "No motion command was sent" not in result["report"]
 
 
-def test_rosorin_interface_check_reports_missing_without_claiming_hardware():
+def test_generic_interface_check_reports_missing_without_claiming_hardware():
     result = _NODE_REGISTRY["RobotROSInterfaceCheck"]({
         "topics": ["/rosout [rcl_interfaces/msg/Log]"],
         "nodes": [],
@@ -93,9 +341,9 @@ def test_rosorin_interface_check_reports_missing_without_claiming_hardware():
     })
 
     assert result["ready"] is False
-    assert "mobile_base" in result["missing"]
-    assert "rgb_camera" in result["missing"]
+    assert result["missing"] == []
     assert result["capabilities"] == []
+    assert "Connect a robot profile" in result["report"]
     assert "No motion command was sent" in result["report"]
 
 
@@ -591,6 +839,8 @@ def test_joint_list_accepts_more_than_sixteen_numbered_inputs():
 
 
 def test_robot_profile_selector_is_a_dropdown():
+    assert _NODE_REGISTRY["Robot"]._bn_input_choices["profile_id"][0] == "auto"
+    assert _NODE_REGISTRY["Robot"]._bn_input_defaults["profile_id"] == "auto"
     assert "so_arm101" in _NODE_REGISTRY["Robot"]._bn_input_choices["profile_id"]
     assert _NODE_REGISTRY["Robot"]._bn_primary_inputs == ["trigger"]
     assert _NODE_REGISTRY["Robot"]._bn_primary_outputs == ["robot", "report"]
@@ -598,6 +848,77 @@ def test_robot_profile_selector_is_a_dropdown():
     assert _NODE_REGISTRY["RobotProfileLoad"]._bn_hidden is True
     assert _NODE_REGISTRY["RobotDriverPreset"]._bn_hidden is True
     assert _NODE_REGISTRY["RobotDiscovery"]._bn_hidden is True
+
+
+def test_robot_auto_selects_only_profile_and_declares_joint_capabilities(
+    monkeypatch, tmp_path,
+):
+    monkeypatch.setenv("BLACKNODE_ROBOTS_DIR", str(tmp_path / "robots"))
+    hardware = {
+        "found": True,
+        "ready": True,
+        "devices": [{"path": "COM7", "serial": "ROBOT-7", "accessible": True}],
+        "recommended": {"path": "COM7", "serial": "ROBOT-7", "accessible": True},
+        "report": "found one adapter",
+    }
+    monkeypatch.setattr(robot_nodes, "robot_usb_discovery", lambda _ctx: hardware)
+    seen = {}
+
+    def fake_connection(ctx):
+        seen.update(ctx)
+        return {
+            "ready": True,
+            "usb_ready": True,
+            "driver_running": True,
+            "robot": {"ready": True, "driver": ctx["driver"]},
+            "report": "driver running safely",
+        }
+
+    monkeypatch.setattr(robot_nodes, "robot_discovery", fake_connection)
+
+    result = _NODE_REGISTRY["Robot"]({"action": "start"})
+
+    assert result["found"] is True
+    assert result["profile"]["id"] == "so_arm101"
+    assert result["profile"]["capabilities"] == [
+        "position_feedback",
+        "joint_group",
+    ]
+    bindings = result["profile"]["capability_bindings"]
+    assert bindings["position_feedback"]["configuration"]["ros2_interfaces"][0][
+        "candidates"
+    ] == ["/joint_states"]
+    assert bindings["joint_group"]["configuration"]["ros2_interfaces"][0][
+        "candidates"
+    ] == ["/joint_commands"]
+    assert seen["action"] == "start"
+    assert "automatic profile match: only installed robot profile" in result["report"]
+
+
+def test_robot_auto_selection_stops_when_multiple_profiles_are_ambiguous(
+    monkeypatch, tmp_path,
+):
+    monkeypatch.setenv("BLACKNODE_ROBOTS_DIR", str(tmp_path / "robots"))
+    other = profile_nodes.builtin_profile("so_arm101")
+    other["id"] = "other_arm"
+    other["display_name"] = "Other arm"
+    _NODE_REGISTRY["RobotProfileSave"]({"profile": other})
+    hardware = {
+        "found": True,
+        "ready": True,
+        "devices": [{"path": "COM7", "serial": "UNBOUND", "accessible": True}],
+        "recommended": {"path": "COM7", "serial": "UNBOUND", "accessible": True},
+        "report": "found one adapter",
+    }
+    monkeypatch.setattr(robot_nodes, "robot_usb_discovery", lambda _ctx: hardware)
+
+    result = _NODE_REGISTRY["Robot"]({"action": "start"})
+
+    assert result["found"] is False
+    assert result["driver_running"] is False
+    assert result["profile"] == {}
+    assert "multiple profiles could match" in result["report"]
+    assert "select one profile once" in result["report"]
 
 
 def test_robot_automatically_selects_hardware_and_checks_connection(monkeypatch):
@@ -903,8 +1224,8 @@ def test_calibration_highlights_moving_joint_and_extended_range(monkeypatch, tmp
 def test_custom_robot_templates_validate():
     templates = Path(__file__).resolve().parents[1] / "templates"
     for name in (
+        "complete-robot-bringup.json",
         "editable-so-arm101-profile.json",
-        "hiwonder-rosorin-pro-readiness.json",
         "robot-guided-calibration.json",
         "so-arm101-motion-test.json",
     ):

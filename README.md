@@ -24,6 +24,8 @@ This package owns the user-facing robot abstraction:
 - describe how a robot driver should start
 - start/stop a driver process
 - build, save, duplicate, load, and calibrate reusable robot profiles
+- bind semantic capabilities to replaceable package components
+- inspect each provider as available, unavailable, or unhealthy
 
 Robot-specific packages provide protocol driver descriptors and hardware
 bridges. Transport packages such as
@@ -48,36 +50,35 @@ and verification commands.
 | `RobotProfileList` | Lists built-in and locally saved profiles |
 | `RobotProfileDuplicate` | Copies a built-in or local profile under a new editable name |
 | `RobotCalibrationRecorder` | Safely records released-arm limits and a home pose for one physical robot |
+| `RobotCapabilityBinding` | Binds one semantic capability to a replaceable package component, adapter, configuration, and optional hardware identity |
+| `RobotCapabilityList` | Collects capability bindings for a robot profile |
+| `RobotCapabilityProfile` | Attaches capability providers and stable hardware identity to a reusable robot profile |
+| `RobotCapabilityInspect` | Resolves a profile against installed components and live provider reports as available, unavailable, or unhealthy |
 | `RobotDriverLauncher` | Starts/stops a driver process from the descriptor |
 | `RobotConnectionDashboard` | Shows USB, driver, ROS interface, live joint positions, home references, safe ranges, and calibration source in one view |
 | `RobotMonitor` | Opens a read-only live canvas view for a registered robot's connection, motion state, telemetry, streams, and joints |
 | `RobotROSInterfaceCheck` | Matches a live ROS graph to a supported robot interface profile without publishing commands |
 
-## Hiwonder ROSOrin Pro
+## Complete robot bringup
 
-Open the **Hiwonder ROSOrin Pro Readiness** template after Blacknode is
-deployed to the robot and the vendor ROS 2 services are running. The workflow
-is read-only. It inventories the live topics, nodes, and services, then checks
-the documented interfaces for:
+Open **Complete Robot Bringup** and press **Run**. Its `Robot` node discovers
+the connected hardware, selects the profile already bound to that physical
+device, applies its calibration, and starts the driver with motion disarmed.
+The remaining nodes inventory ROS 2 and report each declared capability as
+available, unavailable, or unhealthy.
 
-- Mecanum base velocity and odometry
-- TOF LiDAR and chassis IMU
-- RGB, depth, and camera-calibration streams
-- 6DOF arm command and inverse-kinematics interfaces
-- navigation, SLAM, voice interaction, and the controller buzzer
+Automatic profile selection prefers a calibration saved for the connected
+hardware, then an exact physical identity, then an exact USB match. When only
+one profile exists, Blacknode selects it directly. If multiple profiles remain
+equally possible, the report asks for one profile selection instead of choosing
+a motion-capable definition by guesswork.
 
-The vendor software uses more than one RGB/depth namespace across controller
-images. The readiness profile accepts both `rgb`/`depth` and `rgb0`/`depth0`
-layouts and records the exact live binding in its `bindings` output. Keep base
-and arm motion disarmed until this discovery passes and the physical unit's
-feedback, calibration, joint limits, command expiry, and stop behavior have
-been verified.
-
-The template also captures one frame from
-`/depth_cam/rgb/image_raw`. If the readiness output selects
-`/depth_cam/rgb0/image_raw`, update the camera node to that discovered topic.
-Navigation, SLAM, kinematics, and voice entries may show `ON DEMAND` until the
-corresponding vendor launch file is active.
+Joint-based profiles automatically expose `position_feedback` and
+`joint_group` capability bindings using their configured state and command
+topics. Other robot shapes declare only their own capabilities and ROS 2
+interfaces. An arm does not imply a base, and a camera does not imply LiDAR.
+The bringup workflow inventories and checks the declared interfaces; it never
+authorizes or sends motion.
 
 Changing the generic `Robot.profile_id` invalidates the old dashboard. Press
 **Run** to apply it: if its generated driver command differs, Blacknode safely
@@ -85,10 +86,11 @@ stops the prior managed process before starting the selected profile. A
 `PROFILE DEFAULTS` dashboard has no saved calibration for that profile and
 hardware ID.
 
-For one robot, use only `Robot`; it automatically discovers available hardware
-and uses `selection: 0`. Duplicate it and choose `selection: 1` for a second
-robot. If the discovered order is reversed, swap those two indexes. Camera and
-future sensor facades use the same `selection` convention.
+For one robot, use only `Robot`; the default `profile_id=auto` discovers the
+available hardware and uses `selection: 0`. Duplicate it and choose
+`selection: 1` for a second robot. Bind each physical device to its saved
+profile or calibration so selection remains stable when USB enumeration order
+changes. Camera and future sensor facades use the same `selection` convention.
 The selected entry's serial number (or port path when no serial is available)
 becomes the robot's `hardware_id`; discovery's index-0 shortcut values never
 override a different selected entry.
@@ -149,10 +151,11 @@ verify and use the interface.
 
 ## Robot Selection and Drivers
 
-Use the generic `Robot` node in new workflows. Its dropdown includes built-in
-and locally saved profiles; it discovers the selected connection, applies the
-matching calibration, and checks, starts, or stops the driver itself. The old
-discovery and profile-loader types remain hidden for workflow compatibility.
+Use the generic `Robot` node in new workflows. Its dropdown starts with
+`Auto`, followed by built-in and locally saved profiles. It discovers the
+selected connection, applies the matching calibration, and checks, starts, or
+stops the driver itself. The old discovery and profile-loader types remain
+hidden for workflow compatibility.
 
 `RobotDefinition.driver_script` is also a dropdown populated from installed
 `drivers/*_driver.py` files when Blacknode starts. Adding a driver file and

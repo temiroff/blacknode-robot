@@ -1,13 +1,12 @@
-"""Read-only capability binding checks for supported robot ROS interfaces."""
+"""Read-only ROS 2 interface checks driven entirely by robot profiles."""
 from __future__ import annotations
 
 from typing import Any
 
-from blacknode.node import Bool, Dict, Enum, List, Text, node
+from blacknode.node import Bool, Dict, List, Text, node
 
 
 _CATEGORY = "Robot"
-_PRESETS = ["hiwonder_rosorin_pro"]
 
 
 def _ros_names(values: Any) -> set[str]:
@@ -22,16 +21,74 @@ def _ros_names(values: Any) -> set[str]:
     return names
 
 
-def _binding(
-    *,
-    label: str,
+def _profile_bindings(profile: dict[str, Any]) -> list[dict[str, Any]]:
+    raw = profile.get("capability_bindings")
+    values = raw.values() if isinstance(raw, dict) else raw if isinstance(raw, list) else []
+    return [dict(value) for value in values if isinstance(value, dict)]
+
+
+def _interface_specs(binding: dict[str, Any]) -> list[dict[str, Any]]:
+    configuration = (
+        binding.get("configuration")
+        if isinstance(binding.get("configuration"), dict)
+        else {}
+    )
+    raw = configuration.get("ros2_interfaces")
+    if not isinstance(raw, list):
+        raw = configuration.get("interfaces")
+    if isinstance(raw, list):
+        return [dict(value) for value in raw if isinstance(value, dict)]
+    kind = str(configuration.get("interface_kind") or "").strip().lower()
+    candidates = configuration.get("candidates")
+    contains = configuration.get("contains")
+    if kind or isinstance(candidates, list) or isinstance(contains, list):
+        return [{
+            "kind": kind or "topic",
+            "candidates": list(candidates or []),
+            "contains": list(contains or []),
+            "required": True,
+        }]
+    return []
+
+
+def _observed_for_kind(
     kind: str,
-    candidates: list[str],
-    observed: set[str],
-    required: bool,
-    contains: tuple[str, ...] = (),
-    note: str = "",
+    *,
+    topics: set[str],
+    nodes: set[str],
+    services: set[str],
+) -> set[str]:
+    if kind == "node":
+        return nodes
+    if kind == "service":
+        return services
+    return topics
+
+
+def _match_interface(
+    spec: dict[str, Any],
+    *,
+    topics: set[str],
+    nodes: set[str],
+    services: set[str],
 ) -> dict[str, Any]:
+    kind = str(spec.get("kind") or "topic").strip().lower()
+    observed = _observed_for_kind(
+        kind,
+        topics=topics,
+        nodes=nodes,
+        services=services,
+    )
+    candidates = [
+        str(value or "").strip()
+        for value in (spec.get("candidates") or [])
+        if str(value or "").strip()
+    ]
+    contains = [
+        str(value or "").strip().lower()
+        for value in (spec.get("contains") or [])
+        if str(value or "").strip()
+    ]
     exact = next((name for name in candidates if name in observed), "")
     fuzzy = next(
         (
@@ -43,134 +100,14 @@ def _binding(
     )
     matched = exact or fuzzy
     return {
-        "label": label,
         "kind": kind,
         "available": bool(matched),
         "matched": matched,
-        "candidates": list(candidates),
-        "required": required,
-        "note": note,
-    }
-
-
-def _rosorin_pro_bindings(
-    topics: set[str],
-    nodes: set[str],
-    services: set[str],
-) -> dict[str, dict[str, Any]]:
-    """Bindings documented by Hiwonder, including known camera-name variants."""
-    return {
-        "mobile_base": _binding(
-            label="Mecanum base velocity",
-            kind="topic",
-            candidates=["/controller/cmd_vel"],
-            observed=topics,
-            required=True,
-        ),
-        "odometry": _binding(
-            label="Base odometry",
-            kind="topic",
-            candidates=["/odom", "/odom_raw"],
-            observed=topics,
-            required=True,
-        ),
-        "lidar": _binding(
-            label="TOF LiDAR scan",
-            kind="topic",
-            candidates=["/scan"],
-            observed=topics,
-            required=True,
-        ),
-        "imu": _binding(
-            label="Chassis IMU",
-            kind="topic",
-            candidates=["/ros_robot_controller/imu_raw"],
-            observed=topics,
-            required=True,
-        ),
-        "rgb_camera": _binding(
-            label="Depth-camera RGB stream",
-            kind="topic",
-            candidates=["/depth_cam/rgb/image_raw", "/depth_cam/rgb0/image_raw"],
-            observed=topics,
-            required=True,
-            note="The vendor image uses either the rgb or rgb0 namespace.",
-        ),
-        "depth_camera": _binding(
-            label="Depth image stream",
-            kind="topic",
-            candidates=["/depth_cam/depth/image_raw", "/depth_cam/depth0/image_raw"],
-            observed=topics,
-            required=True,
-            note="The vendor image uses either the depth or depth0 namespace.",
-        ),
-        "camera_info": _binding(
-            label="Depth-camera calibration",
-            kind="topic",
-            candidates=["/depth_cam/depth/camera_info", "/depth_cam/depth0/camera_info"],
-            observed=topics,
-            required=True,
-        ),
-        "arm_command": _binding(
-            label="6DOF arm servo command",
-            kind="topic",
-            candidates=["/servo_controller", "/servo_controller11"],
-            observed=topics,
-            required=True,
-            note="Blacknode keeps arm motion disarmed until live feedback and limits are confirmed.",
-        ),
-        "arm_kinematics": _binding(
-            label="Arm inverse kinematics",
-            kind="service",
-            candidates=[
-                "/kinematics/set_pose_target",
-                "/kinematics/set_joint_value_target",
-            ],
-            observed=services,
-            required=False,
-            note="These services appear when the vendor kinematics stack is running.",
-        ),
-        "depth_control": _binding(
-            label="Depth-camera emitter control",
-            kind="service",
-            candidates=["/depth_cam/set_ldp_enable"],
-            observed=services,
-            required=False,
-        ),
-        "navigation": _binding(
-            label="Navigation stack",
-            kind="node",
-            candidates=[],
-            observed=nodes,
-            required=False,
-            contains=("nav2", "navigate", "planner_server", "controller_server"),
-            note="Navigation nodes are normally launched only for a navigation mission.",
-        ),
-        "slam": _binding(
-            label="SLAM mapping",
-            kind="node",
-            candidates=[],
-            observed=nodes | topics,
-            required=False,
-            contains=("slam", "gmapping", "/map"),
-            note="Mapping nodes and /map appear only while the mapping stack is active.",
-        ),
-        "voice": _binding(
-            label="Voice interaction",
-            kind="node",
-            candidates=[],
-            observed=nodes | topics | services,
-            required=False,
-            contains=("voice", "speech", "audio", "microphone", "wonder_echo", "asr", "tts"),
-            note="Voice interfaces vary by kit and vendor image; live discovery selects the binding.",
-        ),
-        "buzzer": _binding(
-            label="Controller buzzer",
-            kind="topic",
-            candidates=["/ros_robot_controller/set_buzzer"],
-            observed=topics,
-            required=False,
-        ),
+        "candidates": candidates,
+        "contains": contains,
+        "required": bool(spec.get("required", True)),
+        "label": str(spec.get("label") or "").strip(),
+        "note": str(spec.get("note") or "").strip(),
     }
 
 
@@ -179,11 +116,11 @@ def _rosorin_pro_bindings(
     component="capabilities",
     category=_CATEGORY,
     description=(
-        "Match a live ROS graph against a supported robot interface profile. "
-        "Read-only: discovers capability bindings and never publishes commands."
+        "Match a live ROS 2 graph against the interfaces declared by a robot "
+        "profile. Read-only: discovers bindings and never publishes commands."
     ),
     inputs={
-        "preset": Enum(_PRESETS, default="hiwonder_rosorin_pro"),
+        "profile": Dict,
         "topics": List(default=[]),
         "nodes": List(default=[]),
         "services": List(default=[]),
@@ -197,62 +134,111 @@ def _rosorin_pro_bindings(
     },
 )
 def robot_ros_interface_check(ctx: dict) -> dict:
-    preset = str(ctx.get("preset") or "hiwonder_rosorin_pro").strip()
+    profile = dict(ctx.get("profile") or {}) if isinstance(ctx.get("profile"), dict) else {}
     topics = _ros_names(ctx.get("topics"))
     nodes = _ros_names(ctx.get("nodes"))
     services = _ros_names(ctx.get("services"))
-    if preset != "hiwonder_rosorin_pro":
-        return {
-            "ready": False,
-            "capabilities": [],
-            "missing": [],
-            "bindings": {},
-            "report": f"unknown robot ROS interface preset: {preset}",
+    declared = _profile_bindings(profile)
+    capability_states: dict[str, dict[str, Any]] = {}
+    for binding in declared:
+        capability = str(binding.get("capability") or "").strip()
+        if not capability:
+            continue
+        specs = _interface_specs(binding)
+        checked = [
+            _match_interface(
+                spec,
+                topics=topics,
+                nodes=nodes,
+                services=services,
+            )
+            for spec in specs
+        ]
+        required_checks = [value for value in checked if value["required"]]
+        matched = [value["matched"] for value in checked if value["matched"]]
+        available = bool(checked) and (
+            all(value["available"] for value in required_checks)
+            if required_checks
+            else bool(matched)
+        )
+        missing_required = [
+            value
+            for value in required_checks
+            if not value["available"]
+        ]
+        capability_states[capability] = {
+            "label": str(binding.get("label") or capability.replace("_", " ").title()),
+            "available": available,
+            "matched": matched[0] if len(matched) == 1 else "",
+            "matches": matched,
+            "required": bool(binding.get("required", True)),
+            "interfaces": checked,
+            "note": (
+                "profile does not declare ROS 2 interfaces"
+                if not specs
+                else "; ".join(
+                    value["note"]
+                    for value in missing_required
+                    if value["note"]
+                )
+            ),
         }
-
-    bindings = _rosorin_pro_bindings(topics, nodes, services)
-    capabilities = [name for name, value in bindings.items() if value["available"]]
-    missing = [name for name, value in bindings.items() if not value["available"]]
-    required = [name for name, value in bindings.items() if value["required"]]
-    missing_required = [name for name in required if not bindings[name]["available"]]
-    ready = not missing_required
-
+    available_capabilities = [
+        name for name, value in capability_states.items() if value["available"]
+    ]
+    missing = [
+        name for name, value in capability_states.items() if not value["available"]
+    ]
+    missing_required = [
+        name
+        for name, value in capability_states.items()
+        if value["required"] and not value["available"]
+    ]
+    ready = bool(capability_states) and not missing_required
     lines = [
-        "Hiwonder ROSOrin Pro ROS interface readiness",
+        "Generic ROS 2 robot interface readiness",
+        f"profile: {profile.get('display_name') or profile.get('id') or 'not connected'}",
         f"observed: {len(topics)} topic(s), {len(nodes)} node(s), {len(services)} service(s)",
-        f"required data-plane bindings: {len(required) - len(missing_required)}/{len(required)}",
         "",
     ]
-    for name, value in bindings.items():
+    if not capability_states:
+        lines.append("[UNCONFIGURED] Connect a robot profile with capability bindings.")
+    for capability, value in capability_states.items():
         if value["available"]:
-            state = "READY"
-            detail = value["matched"]
-        elif value["required"]:
-            state = "MISSING"
-            detail = " or ".join(value["candidates"]) or "matching live interface"
+            state = "AVAILABLE"
+            detail = ", ".join(value["matches"])
+        elif not value["interfaces"]:
+            state = "UNCONFIGURED"
+            detail = value["note"]
         else:
-            state = "ON DEMAND"
-            detail = "not active in this graph"
+            state = "UNAVAILABLE"
+            expected = []
+            for interface in value["interfaces"]:
+                expected.extend(interface["candidates"])
+                expected.extend(interface["contains"])
+            detail = ", ".join(expected) or "declared ROS 2 interface"
         lines.append(f"[{state}] {value['label']}: {detail}")
     lines.extend([
         "",
         (
-            "READY: the read-only base, sensor, camera, and arm-command interfaces were discovered. "
-            "Keep motion disarmed until feedback, calibration, limits, and stop behavior are verified."
+            "READY: every required profile-declared ROS 2 interface was discovered."
             if ready
-            else "NEXT: start the vendor base/camera/arm services, then run this check again. No motion command was sent."
+            else (
+                "NEXT: connect a configured robot profile, then start its declared "
+                "providers and run this check again. No motion command was sent."
+            )
         ),
     ])
     return {
         "ready": ready,
-        "capabilities": capabilities,
+        "capabilities": available_capabilities,
         "missing": missing,
         "bindings": {
-            "preset": preset,
+            "profile_id": str(profile.get("id") or profile.get("profile_id") or ""),
             "topics": sorted(topics),
             "nodes": sorted(nodes),
             "services": sorted(services),
-            "capabilities": bindings,
+            "capabilities": capability_states,
         },
         "report": "\n".join(lines),
     }

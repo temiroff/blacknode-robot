@@ -107,8 +107,20 @@ def _validate_profile(profile: dict[str, Any]) -> list[str]:
     if not _ID_PATTERN.fullmatch(profile_id):
         errors.append("profile id must be lowercase snake_case, begin with a letter, and be at most 64 characters")
     joints = _joint_list(profile)
-    if not joints:
-        errors.append("add at least one RobotJointDefinition")
+    capability_bindings = (
+        profile.get("capability_bindings")
+        if isinstance(profile.get("capability_bindings"), dict)
+        else {}
+    )
+    if not joints and not capability_bindings:
+        errors.append("add at least one RobotJointDefinition or robot capability binding")
+    for capability, binding in capability_bindings.items():
+        if not _ID_PATTERN.fullmatch(str(capability or "")):
+            errors.append(f"capability '{capability}' needs a lowercase stable id")
+            continue
+        provider = binding.get("provider") if isinstance(binding, dict) and isinstance(binding.get("provider"), dict) else {}
+        if not str(provider.get("package") or "").strip() or not str(provider.get("component") or "").strip():
+            errors.append(f"capability '{capability}' needs a provider package and component")
     match = profile.get("match") if isinstance(profile.get("match"), dict) else {}
     for key, label in (("vendor_id", "vendor id"), ("product_id", "product id")):
         value = str(match.get(key) or "")
@@ -225,6 +237,10 @@ def _available_profile_ids() -> list[str]:
     return ids or ["so_arm101"]
 
 
+def _available_robot_profile_ids() -> list[str]:
+    return ["auto", *_available_profile_ids()]
+
+
 def _hardware_id(ctx: dict[str, Any]) -> str:
     explicit = str(ctx.get("hardware_id") or "").strip()
     hardware = ctx.get("hardware") if isinstance(ctx.get("hardware"), dict) else {}
@@ -249,6 +265,160 @@ def _hardware_details(ctx: dict[str, Any]) -> dict[str, Any]:
 def _usb_id(value: Any) -> str:
     text = str(value or "").strip().lower()
     return text[2:] if text.startswith("0x") else text
+
+
+def _profile_hardware_identity(profile: dict[str, Any]) -> str:
+    identity = (
+        profile.get("hardware_identity")
+        if isinstance(profile.get("hardware_identity"), dict)
+        else {}
+    )
+    return str(
+        identity.get("id")
+        or identity.get("serial")
+        or identity.get("serial_number")
+        or identity.get("path")
+        or ""
+    ).strip()
+
+
+def _auto_profile_for_hardware(
+    hardware: dict[str, Any],
+) -> tuple[dict[str, Any] | None, Path | None, str]:
+    candidates: list[tuple[dict[str, Any], Path | None]] = []
+    for item in list_profiles():
+        profile, path = load_profile(str(item["id"]))
+        if profile is not None:
+            candidates.append((profile, path))
+    if not candidates:
+        return None, None, "no robot profiles are installed"
+
+    recommended = (
+        hardware.get("recommended")
+        if isinstance(hardware.get("recommended"), dict)
+        else {}
+    )
+    hardware_id = _hardware_id({"hardware": hardware})
+    serial = str(
+        recommended.get("serial")
+        or recommended.get("serial_number")
+        or hardware.get("serial")
+        or hardware.get("serial_number")
+        or ""
+    ).strip()
+    path_value = str(recommended.get("path") or hardware.get("path") or "").strip()
+    vendor_id = _usb_id(recommended.get("vendor_id") or hardware.get("vendor_id"))
+    product_id = _usb_id(recommended.get("product_id") or hardware.get("product_id"))
+
+    ranked: list[tuple[int, dict[str, Any], Path | None, str]] = []
+    for profile, path in candidates:
+        profile_id = str(profile.get("id") or "")
+        match = profile.get("match") if isinstance(profile.get("match"), dict) else {}
+        expected_hardware = _profile_hardware_identity(profile)
+        expected_serial = str(
+            match.get("serial")
+            or match.get("serial_number")
+            or ""
+        ).strip()
+        expected_path = str(match.get("path") or "").strip()
+        expected_vendor = _usb_id(match.get("vendor_id"))
+        expected_product = _usb_id(match.get("product_id"))
+        score = 0
+        reason = ""
+        if hardware_id and _calibration_path(profile_id, hardware_id).exists():
+            score, reason = 400, "saved calibration for this physical device"
+        elif expected_hardware and expected_hardware in {hardware_id, serial, path_value}:
+            score, reason = 300, "saved physical hardware identity"
+        elif expected_serial and serial and expected_serial == serial:
+            score, reason = 250, "USB serial"
+        elif expected_path and path_value and expected_path == path_value:
+            score, reason = 225, "saved device path"
+        elif (
+            expected_vendor
+            and expected_product
+            and expected_vendor == vendor_id
+            and expected_product == product_id
+        ):
+            score, reason = 200, "USB vendor/product"
+        ranked.append((score, profile, path, reason))
+
+    best_score = max(item[0] for item in ranked)
+    best = [item for item in ranked if item[0] == best_score]
+    if best_score > 0 and len(best) == 1:
+        _score, profile, path, reason = best[0]
+        return profile, path, reason
+    if len(candidates) == 1:
+        profile, path = candidates[0]
+        return profile, path, "only installed robot profile"
+    names = ", ".join(str(profile.get("display_name") or profile.get("id")) for profile, _ in candidates)
+    return (
+        None,
+        None,
+        f"multiple profiles could match ({names}); select one profile once to bind this device",
+    )
+
+
+def _profile_with_default_capabilities(
+    profile: dict[str, Any],
+    driver: dict[str, Any],
+) -> dict[str, Any]:
+    result = copy.deepcopy(profile)
+    existing = result.get("capability_bindings")
+    if isinstance(existing, dict) and existing:
+        result["capabilities"] = list(existing)
+        return result
+    if not _joint_list(result):
+        return result
+
+    protocol = _slug(result.get("protocol") or driver.get("id") or "joint_driver")
+    provider = {
+        "package": "blacknode-drivers",
+        "component": protocol,
+        "adapter": "ros2",
+    }
+    state_topic = str(driver.get("state_topic") or "/joint_states")
+    command_topic = str(driver.get("command_topic") or "/joint_commands")
+    bindings = {
+        "position_feedback": {
+            "kind": "blacknode.robot-capability-binding",
+            "schema_version": 1,
+            "capability": "position_feedback",
+            "label": "Position feedback",
+            "provider": copy.deepcopy(provider),
+            "configuration": {
+                "ros2_interfaces": [{
+                    "kind": "topic",
+                    "candidates": [state_topic],
+                    "required": True,
+                    "label": "Joint state",
+                    "note": "Start the selected robot driver.",
+                }],
+            },
+            "hardware_identity": {},
+            "required": True,
+        },
+        "joint_group": {
+            "kind": "blacknode.robot-capability-binding",
+            "schema_version": 1,
+            "capability": "joint_group",
+            "label": "Joint group",
+            "provider": copy.deepcopy(provider),
+            "configuration": {
+                "ros2_interfaces": [{
+                    "kind": "topic",
+                    "candidates": [command_topic],
+                    "required": True,
+                    "label": "Joint command",
+                    "note": "Start the selected robot driver.",
+                }],
+            },
+            "hardware_identity": {},
+            "required": True,
+        },
+    }
+    result["capabilities"] = list(bindings)
+    result["capability_bindings"] = bindings
+    return result
 
 
 def _apply_calibration(profile: dict[str, Any], calibration: dict[str, Any] | None) -> dict[str, Any]:
@@ -526,7 +696,7 @@ def robot_profile_save(ctx: dict) -> dict:
     primary_outputs=["robot", "report"],
     inputs={
         "trigger": AnyPort,
-        "profile_id": Enum(_available_profile_ids(), default="so_arm101"),
+        "profile_id": Enum(_available_robot_profile_ids(), default="auto"),
         "profile": Dict,
         "calibration": Dict,
         "selection": Int(default=0),
@@ -568,21 +738,6 @@ def robot_profile_load(ctx: dict) -> dict:
         if isinstance(ctx.get("profile"), dict) and ctx.get("profile")
         else None
     )
-    profile_id = _slug(
-        (supplied_profile or {}).get("id")
-        or ctx.get("profile_id")
-        or "so_arm101"
-    )
-    if supplied_profile is not None:
-        profile = supplied_profile
-        path = None
-    else:
-        profile, path = load_profile(profile_id)
-    if profile is None:
-        known = ", ".join(item["id"] for item in list_profiles()) or "none"
-        return {"found": False, "ready": False, "profile": {}, "driver": {}, "robot": {}, "hardware": {},
-                "devices": [], "calibration": {}, "path": "", "report": f"robot profile '{profile_id}' not found (available: {known})"}
-
     supplied_hardware = ctx.get("hardware") if isinstance(ctx.get("hardware"), dict) else ctx.get("usb")
     hardware = dict(supplied_hardware or {}) if isinstance(supplied_hardware, dict) else {}
     discovery_report = ""
@@ -615,6 +770,39 @@ def robot_profile_load(ctx: dict) -> dict:
         }
     elif hardware:
         devices = [dict(item) for item in hardware.get("devices", []) if isinstance(item, dict)]
+
+    requested_profile = str(
+        (supplied_profile or {}).get("id")
+        or ctx.get("profile_id")
+        or "auto"
+    ).strip()
+    auto_reason = ""
+    if supplied_profile is not None:
+        profile = supplied_profile
+        profile_id = _slug(profile.get("id") or "robot")
+        path = None
+    elif requested_profile.lower() == "auto":
+        profile, path, auto_reason = _auto_profile_for_hardware(hardware)
+        profile_id = _slug((profile or {}).get("id") or "auto")
+    else:
+        profile_id = _slug(requested_profile)
+        profile, path = load_profile(profile_id)
+    if profile is None:
+        known = ", ".join(item["id"] for item in list_profiles()) or "none"
+        reason = auto_reason or f"profile '{profile_id}' was not found"
+        return {
+            "found": False, "ready": False, "usb_ready": bool(hardware.get("ready")),
+            "driver_running": False, "profile": {}, "driver": {}, "robot": {},
+            "hardware": hardware, "usb": hardware, "devices": devices,
+            "recommended": dict(hardware.get("recommended") or {}),
+            "permissions": dict(hardware.get("permissions") or {}),
+            "calibration": {}, "path": "",
+            "report": (
+                f"robot profile selection needs attention: {reason}"
+                f"\navailable profiles: {known}"
+                + (f"\n{discovery_report}" if discovery_report else "")
+            ),
+        }
 
     effective_ctx = {**ctx, "hardware": hardware}
     hardware_id = _hardware_id(effective_ctx)
@@ -692,6 +880,9 @@ def robot_profile_load(ctx: dict) -> dict:
             # exact robot.
             driver["hardware_id"] = hardware_id
             driver["calibration_path"] = ""
+    effective_profile = copy.deepcopy(driver.get("profile") or effective_profile)
+    effective_profile = _profile_with_default_capabilities(effective_profile, driver)
+    driver["profile"] = copy.deepcopy(effective_profile)
     effective = dict(driver.get("profile") or profile)
     from .robot import robot_discovery
 
@@ -730,6 +921,7 @@ def robot_profile_load(ctx: dict) -> dict:
         "path": str(path or "builtin"),
         "report": (
             f"loaded robot profile '{profile_id}' ({len(_joint_list(effective))} joint(s))"
+            + (f"\nautomatic profile match: {auto_reason}" if auto_reason else "")
             + (
                 "\ncalibration: embedded deployment calibration"
                 if supplied_calibration is not None
