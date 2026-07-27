@@ -824,6 +824,7 @@ def test_visual_robot_definition_saves_and_loads_named_profile(monkeypatch, tmp_
     loaded = _NODE_REGISTRY["RobotProfileLoad"]({
         "profile_id": "my_custom_arm",
         "topic_prefix": "/leader",
+        "read_only": True,
         "rate_hz": 60.0,
     })
     assert loaded["found"] is True
@@ -832,8 +833,11 @@ def test_visual_robot_definition_saves_and_loads_named_profile(monkeypatch, tmp_
     assert loaded["driver"]["topic_prefix"] == "/leader"
     assert loaded["driver"]["state_topic"] == "/leader/joint_states"
     assert loaded["driver"]["command_topic"] == "/leader/joint_commands"
+    assert loaded["driver"]["read_only"] is True
     assert "--rate-hz 60" in loaded["driver"]["command_template"]
-    assert "--state-topic /leader/joint_states" in robot_nodes._driver_command(loaded["driver"], "COM7")
+    command = robot_nodes._driver_command(loaded["driver"], "COM7")
+    assert "--state-topic /leader/joint_states" in command
+    assert "--read-only" in command
 
     listed = _NODE_REGISTRY["RobotProfileList"]({})
     assert {item["id"] for item in listed["profiles"]} == {"so_arm101", "my_custom_arm"}

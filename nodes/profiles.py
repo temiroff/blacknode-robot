@@ -437,7 +437,10 @@ def _apply_calibration(profile: dict[str, Any], calibration: dict[str, Any] | No
 
 
 def _driver_from_profile(
-    profile: dict[str, Any], hardware_id: str = "", topic_prefix: str = "",
+    profile: dict[str, Any],
+    hardware_id: str = "",
+    topic_prefix: str = "",
+    read_only: bool = False,
 ) -> dict[str, Any]:
     profile_id = str(profile.get("id") or "robot")
     calibration: dict[str, Any] = {}
@@ -488,6 +491,7 @@ def _driver_from_profile(
             f'--state-topic {{state_topic}} --command-topic {{command_topic}} --config-topic {{config_topic}} '
             f'--control-topic {{control_topic}} --rate-hz {rate_hz:g} --transport {transport} '
             f'--host "{host}" --rosbridge-port {port}'
+            + (" --read-only" if read_only else "")
         )
     return {
         "id": profile_id,
@@ -508,6 +512,7 @@ def _driver_from_profile(
         "profile": effective,
         "hardware_id": hardware_id,
         "topic_prefix": prefix,
+        "read_only": bool(read_only),
         "calibration_path": str(calibration_path or ""),
     }
 
@@ -723,6 +728,7 @@ def robot_profile_save(ctx: dict) -> dict:
         "control_topic": Text(default="/robot_control"),
         "units": Enum(["radians", "degrees"], default="degrees"),
         "topic_prefix": Text(default=""),
+        "read_only": Bool(default=False),
         "rate_hz": Float(default=0.0),
     },
     outputs={
@@ -871,6 +877,7 @@ def robot_profile_load(ctx: dict) -> dict:
             effective_profile,
             "" if supplied_calibration is not None else hardware_id,
             str(ctx.get("topic_prefix") or ""),
+            bool(ctx.get("read_only", False)),
         )
         if supplied_calibration is not None:
             # A deployment embeds the selected calibration because the target
