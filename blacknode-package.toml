@@ -1,6 +1,6 @@
 [package]
 name = "blacknode-robot"
-version = "0.3.0"
+version = "0.3.1"
 description = "Generic robot discovery, USB permission checks, driver launch, and robot profile contracts."
 requires-blacknode = ">=0.3.0"
 layer = "robot"
@@ -64,7 +64,7 @@ capabilities = ["robot.capabilities"]
 
 # Declared for the package roadmap; sources land in components/authorization/nodes.
 node-types = [
-  "RobotConnectionDashboard", "RobotDiscovery", "RobotROSInterfaceCheck", "RobotUSBDiscovery"
+  "RobotConnectionDashboard", "RobotDiscovery", "RobotMonitor", "RobotROSInterfaceCheck", "RobotUSBDiscovery"
 ]
 
 [components.authorization]
