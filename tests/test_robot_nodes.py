@@ -23,6 +23,8 @@ EXPECTED_NODES = [
     "RobotConnectionDashboard",
     "RobotMonitor",
     "RobotROSInterfaceCheck",
+    "RobotAttachment",
+    "RobotAttachmentList",
     "RobotCapabilityBinding",
     "RobotCapabilityList",
     "RobotCapabilityProfile",
@@ -109,6 +111,88 @@ def _capability_binding(
         "hardware_id": hardware_id,
         "required": required,
     })["binding"]
+
+
+def test_robot_attachments_store_ros_interface_mount_and_identity_in_profile():
+    camera = _NODE_REGISTRY["RobotAttachment"]({
+        "attachment_id": "Front Depth Camera",
+        "display_name": "Front Depth Camera",
+        "attachment_type": "depth_camera",
+        "capability": "front_depth_camera",
+        "provider_package": "blacknode-perception",
+        "provider_component": "camera",
+        "provider_adapter": "ros2",
+        "topic": "/depth_cam/rgb/image_raw",
+        "message_type": "sensor_msgs/msg/Image",
+        "parent_frame": "base_link",
+        "frame_id": "depth_cam_color_frame",
+        "x_m": 0.18,
+        "z_m": 0.42,
+        "pitch_rad": -0.2,
+        "hardware_id": "CAM-001",
+    })
+    lidar = _NODE_REGISTRY["RobotAttachment"]({
+        "attachment_id": "front_lidar",
+        "display_name": "Front LiDAR",
+        "attachment_type": "lidar",
+        "capability": "front_lidar",
+        "provider_package": "blacknode-perception",
+        "provider_component": "lidar",
+        "provider_adapter": "ros2",
+        "topic": "/scan",
+        "message_type": "sensor_msgs/msg/LaserScan",
+        "parent_frame": "base_link",
+        "frame_id": "lidar_frame",
+    })
+    attachments = _NODE_REGISTRY["RobotAttachmentList"]({
+        "attachment_2": lidar["attachment"],
+        "attachment_1": camera["attachment"],
+    })
+    profile = _NODE_REGISTRY["RobotCapabilityProfile"]({
+        "profile_id": "rosorin_style_robot",
+        "display_name": "ROS 2 Sensor Robot",
+        "attachments": attachments["attachments"],
+    })
+
+    assert camera["valid"] is True
+    assert camera["attachment_id"] == "front_depth_camera"
+    assert camera["attachment"]["kind"] == "blacknode.robot-attachment"
+    assert camera["attachment"]["hardware_identity"]["id"] == "CAM-001"
+    assert camera["attachment"]["mount"] == {
+        "translation_m": [0.18, 0.0, 0.42],
+        "rotation_rpy_rad": [0.0, -0.2, 0.0],
+    }
+    assert camera["binding"]["configuration"]["ros2_interfaces"] == [{
+        "kind": "topic",
+        "direction": "output",
+        "topic": "/depth_cam/rgb/image_raw",
+        "candidates": ["/depth_cam/rgb/image_raw"],
+        "message_type": "sensor_msgs/msg/Image",
+        "frame_id": "depth_cam_color_frame",
+    }]
+    assert attachments["count"] == 2
+    assert profile["valid"] is True
+    assert profile["capabilities"] == ["front_depth_camera", "front_lidar"]
+    assert [item["id"] for item in profile["attachments"]] == [
+        "front_depth_camera",
+        "front_lidar",
+    ]
+    assert profile["profile"]["attachments"] == profile["attachments"]
+
+
+def test_robot_attachment_requires_topic_message_type_and_provider():
+    result = _NODE_REGISTRY["RobotAttachment"]({
+        "attachment_id": "imu",
+        "provider_package": "",
+        "provider_component": "",
+        "topic": "",
+        "message_type": "",
+    })
+
+    assert result["valid"] is False
+    assert "provider package and component are required" in result["report"]
+    assert "ROS 2 topic is required" in result["report"]
+    assert "ROS 2 message type is required" in result["report"]
 
 
 def test_capability_bindings_attach_replaceable_providers_to_profile():
@@ -1257,6 +1341,7 @@ def test_custom_robot_templates_validate():
         "complete-robot-bringup.json",
         "editable-so-arm101-profile.json",
         "robot-guided-calibration.json",
+        "robot-sensor-attachments.json",
         "so-arm101-motion-test.json",
     ):
         workflow = json.loads((templates / name).read_text(encoding="utf-8"))

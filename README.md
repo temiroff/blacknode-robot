@@ -51,6 +51,8 @@ and verification commands.
 | `RobotProfileDuplicate` | Copies a built-in or local profile under a new editable name |
 | `RobotCalibrationRecorder` | Safely records released-arm limits and a home pose for one physical robot |
 | `RobotCapabilityBinding` | Binds one semantic capability to a replaceable package component, adapter, configuration, and optional hardware identity |
+| `RobotAttachment` | Describes one mounted camera, depth camera, LiDAR, IMU, GPS, microphone, or custom peripheral with its ROS 2 interface, frame, transform, provider, and hardware identity |
+| `RobotAttachmentList` | Collects physical attachments for storage in a reusable robot profile |
 | `RobotCapabilityList` | Collects capability bindings for a robot profile |
 | `RobotCapabilityProfile` | Attaches capability providers and stable hardware identity to a reusable robot profile |
 | `RobotCapabilityInspect` | Resolves a profile against installed components and live provider reports as available, unavailable, or unhealthy |
@@ -145,6 +147,7 @@ The resulting robot profile carries:
 - `usb`
 - `driver`
 - `interface`
+- `attachments`, including stable attachment IDs, provider bindings, ROS 2 topics and message types, TF parent/child frames, mount transforms, and physical hardware identity
 
 Robot-specific packages should fill in the descriptor. Transport packages should
 verify and use the interface.
@@ -181,6 +184,13 @@ For structural changes, copy the **Editable SO-ARM101 Profile** workflow and
 edit its visible joint nodes before saving. Profile and joint IDs normalize to lowercase
 `snake_case`, limited to 64 characters, and must be unique. Display names are
 free-form and can change without breaking workflows.
+
+Open **Robot Sensor Attachments** to describe a camera, LiDAR, and IMU mounted
+on one robot. Each `RobotAttachment` stores its physical identity, replaceable
+provider, ROS 2 topic and message type, TF parent/child frames, and translation
+plus roll/pitch/yaw mount transform. Add more attachment sockets through
+`RobotAttachmentList`, then save the resulting profile. Edit the example topic
+and frame names to match the live graph before checking or starting providers.
 
 Connect `Robot.hardware` to `RobotDefinition.hardware`. The definition copies
 the real USB vendor ID and product ID reported internally; these four-digit

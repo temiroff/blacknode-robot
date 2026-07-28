@@ -10,6 +10,7 @@ _EXPECTED_ROBOTS = {
     "complete-robot-bringup.json": {"robot": 0},
     "editable-so-arm101-profile.json": {"robot": 0},
     "robot-guided-calibration.json": {"robot": 0},
+    "robot-sensor-attachments.json": {},
     "so-arm101-motion-test.json": {"robot": 0},
 }
 
