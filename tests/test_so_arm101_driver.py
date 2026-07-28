@@ -153,7 +153,9 @@ def test_driver_failed_teach_exit_returns_every_joint_to_torque_off():
     torque_writes = []
 
     class Packet:
-        def read2ByteTxRx(self, _port, servo_id, _address):
+        def read2ByteTxRx(self, _port, servo_id, address):
+            if servo_id == 6 and address == mod.ADDR_GOAL_POSITION[0]:
+                return 1024, 0, 0
             return 2048, 0, 0
 
         def write2ByteTxRx(self, _port, servo_id, _address, _ticks):

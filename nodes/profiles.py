@@ -121,6 +121,47 @@ def _validate_profile(profile: dict[str, Any]) -> list[str]:
         provider = binding.get("provider") if isinstance(binding, dict) and isinstance(binding.get("provider"), dict) else {}
         if not str(provider.get("package") or "").strip() or not str(provider.get("component") or "").strip():
             errors.append(f"capability '{capability}' needs a provider package and component")
+    attachment_ids: set[str] = set()
+    attachments = (
+        profile.get("attachments")
+        if isinstance(profile.get("attachments"), list)
+        else []
+    )
+    for index, attachment in enumerate(attachments, start=1):
+        if not isinstance(attachment, dict):
+            errors.append(f"attachment {index} must be an object")
+            continue
+        attachment_id = str(attachment.get("id") or "")
+        if not _ID_PATTERN.fullmatch(attachment_id):
+            errors.append(f"attachment {index} has invalid id '{attachment_id}'")
+        elif attachment_id in attachment_ids:
+            errors.append(f"attachment id '{attachment_id}' is duplicated")
+        attachment_ids.add(attachment_id)
+        if not str(attachment.get("frame_id") or "").strip():
+            errors.append(f"attachment '{attachment_id or index}' needs a frame id")
+        interfaces = (
+            attachment.get("interfaces")
+            if isinstance(attachment.get("interfaces"), list)
+            else []
+        )
+        if not interfaces:
+            errors.append(f"attachment '{attachment_id or index}' needs at least one interface")
+        for interface in interfaces:
+            if not isinstance(interface, dict):
+                errors.append(f"attachment '{attachment_id or index}' has an invalid interface")
+                continue
+            if str(interface.get("kind") or "") == "topic":
+                topic = str(interface.get("topic") or "").strip()
+                candidates = interface.get("candidates")
+                if not topic and not (
+                    isinstance(candidates, list)
+                    and any(str(value or "").strip() for value in candidates)
+                ):
+                    errors.append(f"attachment '{attachment_id or index}' needs a ROS 2 topic")
+                if not str(interface.get("message_type") or "").strip():
+                    errors.append(
+                        f"attachment '{attachment_id or index}' needs a ROS 2 message type"
+                    )
     match = profile.get("match") if isinstance(profile.get("match"), dict) else {}
     for key, label in (("vendor_id", "vendor id"), ("product_id", "product id")):
         value = str(match.get(key) or "")

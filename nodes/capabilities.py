@@ -6,7 +6,7 @@ import re
 import time
 from typing import Any
 
-from blacknode.node import Bool, Dict, Int, List, Text, node
+from blacknode.node import Bool, Dict, Enum, Float, Int, List, Text, node
 
 try:
     from blacknode.contracts import (
@@ -71,6 +71,15 @@ except ImportError:
 
 _CATEGORY = "Robot"
 _CAPABILITY_ID = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+_ATTACHMENT_TYPES = [
+    "camera",
+    "depth_camera",
+    "lidar",
+    "imu",
+    "gps",
+    "microphone",
+    "custom",
+]
 
 
 def _identifier(value: Any, fallback: str = "") -> str:
@@ -211,6 +220,204 @@ def _classify_observed_state(value: Any) -> tuple[str, str]:
 
 
 @node(
+    name="RobotAttachment",
+    component="capabilities",
+    category=_CATEGORY,
+    description=(
+        "Describe one physical sensor or peripheral mounted on a robot, "
+        "including its replaceable provider, ROS 2 topic, stable frame, "
+        "mount transform, and hardware identity."
+    ),
+    inputs={
+        "attachment_id": Text(default="front_camera"),
+        "display_name": Text(default="Front Camera"),
+        "attachment_type": Enum(_ATTACHMENT_TYPES, default="camera"),
+        "capability": Text(default="camera"),
+        "provider_package": Text(default="blacknode-perception"),
+        "provider_component": Text(default="camera"),
+        "provider_adapter": Text(default="ros2"),
+        "topic": Text(default="/camera/image_raw"),
+        "message_type": Text(default="sensor_msgs/msg/Image"),
+        "parent_frame": Text(default="base_link"),
+        "frame_id": Text(default="camera_link"),
+        "x_m": Float(default=0.0),
+        "y_m": Float(default=0.0),
+        "z_m": Float(default=0.0),
+        "roll_rad": Float(default=0.0),
+        "pitch_rad": Float(default=0.0),
+        "yaw_rad": Float(default=0.0),
+        "configuration": Dict,
+        "hardware_id": Text(default=""),
+        "hardware": Dict,
+        "required": Bool(default=True),
+    },
+    outputs={
+        "valid": Bool,
+        "attachment": Dict,
+        "binding": Dict,
+        "attachment_id": Text,
+        "capability": Text,
+        "report": Text,
+    },
+)
+def robot_attachment(ctx: dict) -> dict:
+    def number(name: str) -> float:
+        try:
+            return float(ctx.get(name) or 0.0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    attachment_id = _identifier(ctx.get("attachment_id"), "attachment")
+    display_name = str(
+        ctx.get("display_name")
+        or attachment_id.replace("_", " ").title()
+    ).strip()
+    attachment_type = str(ctx.get("attachment_type") or "custom").strip().lower()
+    if attachment_type not in _ATTACHMENT_TYPES:
+        attachment_type = "custom"
+    capability = _identifier(ctx.get("capability"), attachment_type)
+    provider = {
+        "package": str(ctx.get("provider_package") or "").strip(),
+        "component": _provider_name(ctx.get("provider_component")),
+        "adapter": _provider_name(ctx.get("provider_adapter")),
+    }
+    topic = str(ctx.get("topic") or "").strip()
+    message_type = str(ctx.get("message_type") or "").strip()
+    parent_frame = str(ctx.get("parent_frame") or "base_link").strip() or "base_link"
+    frame_id = str(ctx.get("frame_id") or f"{attachment_id}_link").strip()
+    mount = {
+        "translation_m": [
+            number("x_m"),
+            number("y_m"),
+            number("z_m"),
+        ],
+        "rotation_rpy_rad": [
+            number("roll_rad"),
+            number("pitch_rad"),
+            number("yaw_rad"),
+        ],
+    }
+    identity = _hardware_identity(ctx.get("hardware"), ctx.get("hardware_id"))
+    interface = {
+        "kind": "topic",
+        "direction": "output",
+        "topic": topic,
+        "candidates": [topic] if topic else [],
+        "message_type": message_type,
+        "frame_id": frame_id,
+    }
+    configuration = copy.deepcopy(
+        ctx.get("configuration")
+        if isinstance(ctx.get("configuration"), dict)
+        else {}
+    )
+    configured_interfaces = (
+        configuration.get("ros2_interfaces")
+        if isinstance(configuration.get("ros2_interfaces"), list)
+        else []
+    )
+    interfaces = [
+        copy.deepcopy(value)
+        for value in configured_interfaces
+        if isinstance(value, dict)
+    ]
+    if topic and not any(
+        str(value.get("topic") or "") == topic
+        or topic in (value.get("candidates") or [])
+        for value in interfaces
+    ):
+        interfaces.insert(0, interface)
+    configuration.update({
+        "attachment_id": attachment_id,
+        "attachment_type": attachment_type,
+        "parent_frame": parent_frame,
+        "frame_id": frame_id,
+        "mount": mount,
+        "ros2_interfaces": interfaces,
+    })
+    binding = robot_capability_binding(
+        capability,
+        provider_package=provider["package"],
+        provider_component=provider["component"],
+        provider_adapter=provider["adapter"],
+        configuration=configuration,
+        hardware_identity=identity,
+        required=bool(ctx.get("required", True)),
+    )
+    attachment = {
+        "kind": "blacknode.robot-attachment",
+        "schema_version": 1,
+        "id": attachment_id,
+        "display_name": display_name,
+        "attachment_type": attachment_type,
+        "capability": capability,
+        "provider": provider,
+        "hardware_identity": identity,
+        "parent_frame": parent_frame,
+        "frame_id": frame_id,
+        "mount": mount,
+        "interfaces": interfaces,
+        "required": bool(ctx.get("required", True)),
+        "binding": binding,
+    }
+    errors: list[str] = []
+    if not _CAPABILITY_ID.fullmatch(attachment_id):
+        errors.append("attachment id needs a lowercase stable id")
+    if not provider["package"] or not provider["component"]:
+        errors.append("provider package and component are required")
+    if not topic:
+        errors.append("ROS 2 topic is required")
+    if not message_type:
+        errors.append("ROS 2 message type is required")
+    if not frame_id:
+        errors.append("frame id is required")
+    return {
+        "valid": not errors,
+        "attachment": attachment,
+        "binding": binding,
+        "attachment_id": attachment_id,
+        "capability": capability,
+        "report": (
+            f"{display_name} ({attachment_type}) · {topic or 'topic not configured'} "
+            f"[{message_type or 'message type not configured'}] · "
+            f"{parent_frame} -> {frame_id} · {_provider_ref(provider)}"
+            + ("\nINVALID: " + "; ".join(errors) if errors else "\nDECLARED: no provider was started")
+        ),
+    }
+
+
+@node(
+    name="RobotAttachmentList",
+    component="capabilities",
+    category=_CATEGORY,
+    description="Collect physical robot attachments for a reusable robot profile.",
+    inputs={"attachment_1": Dict},
+    outputs={"attachments": List, "count": Int, "report": Text},
+    variadic_input=Dict,
+    variadic_prefix="attachment",
+)
+def robot_attachment_list(ctx: dict) -> dict:
+    def sort_key(name: str) -> tuple[int, str]:
+        suffix = name.rsplit("_", 1)[-1]
+        return (int(suffix), name) if suffix.isdigit() else (999_999, name)
+
+    names = sorted(
+        (name for name in ctx if name.startswith("attachment_")),
+        key=sort_key,
+    )
+    attachments = [
+        copy.deepcopy(ctx[name])
+        for name in names
+        if isinstance(ctx.get(name), dict) and ctx[name]
+    ]
+    return {
+        "attachments": attachments,
+        "count": len(attachments),
+        "report": f"assembled {len(attachments)} robot attachment(s)",
+    }
+
+
+@node(
     name="RobotCapabilityBinding",
     component="capabilities",
     category=_CATEGORY,
@@ -317,12 +524,14 @@ def robot_capability_list(ctx: dict) -> dict:
         "bindings": List,
         "hardware_id": Text(default=""),
         "hardware": Dict,
+        "attachments": List,
     },
     outputs={
         "valid": Bool,
         "profile": Dict,
         "capabilities": List,
         "hardware_identity": Dict,
+        "attachments": List,
         "report": Text,
     },
 )
@@ -339,8 +548,24 @@ def robot_capability_profile(ctx: dict) -> dict:
         for value in (ctx.get("bindings") or [])
         if isinstance(value, dict)
     ]
-    binding_map: dict[str, dict[str, Any]] = {}
+    attachments = [
+        copy.deepcopy(value)
+        for value in (ctx.get("attachments") or [])
+        if isinstance(value, dict)
+    ]
     errors: list[str] = []
+    attachment_ids: set[str] = set()
+    for attachment in attachments:
+        attachment_id = _identifier(attachment.get("id"), "attachment")
+        if attachment_id in attachment_ids:
+            errors.append(f"attachment '{attachment_id}' is declared more than once")
+            continue
+        attachment_ids.add(attachment_id)
+        attachment["id"] = attachment_id
+        attachment_binding = attachment.get("binding")
+        if isinstance(attachment_binding, dict):
+            values.append(copy.deepcopy(attachment_binding))
+    binding_map: dict[str, dict[str, Any]] = {}
     for value in values:
         capability = _identifier(value.get("capability"))
         provider = value.get("provider") if isinstance(value.get("provider"), dict) else {}
@@ -364,6 +589,7 @@ def robot_capability_profile(ctx: dict) -> dict:
         "capabilities": list(binding_map),
         "capability_bindings": binding_map,
         "hardware_identity": identity,
+        "attachments": attachments,
     })
     if not binding_map:
         errors.append("add at least one capability binding")
@@ -372,9 +598,11 @@ def robot_capability_profile(ctx: dict) -> dict:
         "profile": profile,
         "capabilities": list(binding_map),
         "hardware_identity": identity,
+        "attachments": attachments,
         "report": (
             f"capability profile: {display_name} ({profile_id}) · "
-            f"{len(binding_map)} capability binding(s)"
+            f"{len(binding_map)} capability binding(s) · "
+            f"{len(attachments)} attachment(s)"
             + (f" · hardware {identity['id']}" if identity.get("id") else " · reusable hardware identity")
             + ("\nINVALID:\n- " + "\n- ".join(errors) if errors else "")
         ),
