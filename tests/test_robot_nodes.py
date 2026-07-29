@@ -620,6 +620,54 @@ def test_driver_launcher_restarts_when_profile_command_changes():
         })
 
 
+def test_driver_launcher_exposes_extension_modules_to_child_processes(
+    tmp_path,
+    monkeypatch,
+):
+    packages_dir = tmp_path / "packages"
+    contract_package = packages_dir / "blacknode-contract-test"
+    contract_package.mkdir(parents=True)
+    (contract_package / "blacknode-package.toml").write_text(
+        "[package]\n"
+        'name = "blacknode-contract-test"\n'
+        'version = "1.0.0"\n',
+        encoding="utf-8",
+    )
+    (contract_package / "blacknode_contract_test.py").write_text(
+        "VALUE = 'canonical'\n",
+        encoding="utf-8",
+    )
+    driver_script = tmp_path / "driver.py"
+    driver_script.write_text(
+        "import blacknode_contract_test\n"
+        "import time\n"
+        "assert blacknode_contract_test.VALUE == 'canonical'\n"
+        "time.sleep(30)\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("BLACKNODE_PACKAGE_PATH", str(packages_dir))
+    descriptor = _NODE_REGISTRY["RobotDriverDescriptor"]({
+        "name": "Contract import test",
+        "command_template": f'"{sys.executable}" "{driver_script}"',
+    })["driver"]
+    run_id = "test_driver_extension_import"
+
+    try:
+        started = _NODE_REGISTRY["RobotDriverLauncher"]({
+            "action": "start",
+            "run_id": run_id,
+            "driver": descriptor,
+            "wait_seconds": 0.25,
+        })
+        assert started["running"] is True
+    finally:
+        _NODE_REGISTRY["RobotDriverLauncher"]({
+            "action": "stop",
+            "run_id": run_id,
+            "driver": descriptor,
+        })
+
+
 def test_identify_robot_wiggles_a_joint_and_returns(monkeypatch):
     from blacknode.pkg.blacknode_ros2 import rosbridge_runtime as rb
     moves = []
