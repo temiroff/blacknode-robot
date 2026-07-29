@@ -1,7 +1,7 @@
 [package]
 name = "blacknode-robot"
-version = "0.3.6"
-description = "Generic robot discovery, USB permission checks, driver launch, and robot profile contracts."
+version = "0.4.0"
+description = "Robot contracts, connected-device lifecycle, normalized telemetry, profiles, and driver launch."
 requires-blacknode = ">=0.3.0"
 layer = "robot"
 component-mode = true
@@ -69,6 +69,34 @@ node-types = [
   "RobotConnectionDashboard", "RobotDiscovery", "RobotMonitor",
   "RobotROSInterfaceCheck", "RobotUSBDiscovery"
 ]
+
+[components.devices]
+description = "Connected hardware representation, configuration, discovery, lifecycle, health, and safe provider interfaces."
+default = true
+capabilities = [
+  "robot.devices", "robot.device-state", "robot.device-lifecycle",
+  "robot.device-health",
+]
+nodes = ["blacknode_robot/devices/nodes"]
+node-types = ["HardwareCapabilities"]
+
+[components.devices.dependencies]
+pip = ["pyserial>=3.5", "feetech-servo-sdk>=1.0"]
+imports = ["serial", "scservo_sdk"]
+
+[components.telemetry]
+description = "Normalized robot temperatures, voltage, faults, joint state, and device-status telemetry."
+default = true
+capabilities = ["robot.telemetry", "robot.device-status-stream"]
+
+[components.telemetry.adapters.mqtt]
+description = "Optional MQTT publisher for normalized robot telemetry."
+default = false
+capabilities = ["robot.telemetry.mqtt"]
+
+[components.telemetry.adapters.mqtt.dependencies]
+pip = ["paho-mqtt>=2.1"]
+imports = ["paho.mqtt.client"]
 
 [components.authorization]
 description = "Operator authorization and consequential-action gating."

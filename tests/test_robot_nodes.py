@@ -286,8 +286,8 @@ def test_capability_inspection_reports_unconfigured_profile_without_assuming_sha
 def test_capability_inspection_requires_declared_component_when_inventory_is_supplied():
     binding = _capability_binding(
         "mobile_base",
-        "mobile-base",
-        package="blacknode-controllers",
+        "base",
+        package="blacknode-motion",
     )
     profile = _NODE_REGISTRY["RobotCapabilityProfile"]({
         "profile_id": "mobile_robot",
@@ -302,7 +302,7 @@ def test_capability_inspection_requires_declared_component_when_inventory_is_sup
 
     assert result["ready"] is False
     assert result["unavailable"] == ["mobile_base"]
-    assert "blacknode-controllers/mobile-base@ros2 is not installed" in result["report"]
+    assert "blacknode-motion/base@ros2 is not installed" in result["report"]
 
 
 def test_capability_inspection_consumes_generic_live_interface_report():
@@ -319,8 +319,8 @@ def test_capability_inspection_consumes_generic_live_interface_report():
         ),
         _capability_binding(
             "mobile_base",
-            "mobile-base",
-            package="blacknode-controllers",
+            "base",
+            package="blacknode-motion",
             interfaces=[{"kind": "topic", "candidates": ["/cmd_vel"]}],
         ),
     ]
@@ -403,8 +403,8 @@ def test_generic_interface_check_matches_common_topic_variants():
         ),
         _capability_binding(
             "arm",
-            "joint-control",
-            package="blacknode-controllers",
+            "arm",
+            package="blacknode-motion",
             interfaces=[{
                 "kind": "topic",
                 "candidates": ["/arm/command", "/arm0/command"],
@@ -413,7 +413,7 @@ def test_generic_interface_check_matches_common_topic_variants():
         _capability_binding(
             "navigation",
             "navigation",
-            package="blacknode-controllers",
+            package="blacknode-motion",
             required=False,
             interfaces=[{
                 "kind": "node",

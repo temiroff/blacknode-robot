@@ -2,10 +2,25 @@
 
 `blacknode-robot/core` owns stable robot contracts, profiles, discovery,
 hardware-identity calibration, capability bindings, and process descriptors.
+`blacknode-robot/devices` owns connected hardware representation,
+configuration, discovery, lifecycle, and health.
+`blacknode-robot/telemetry` owns normalized temperatures, voltage, faults,
+joint state, and device status.
 Physical driver implementations are selectable `blacknode-drivers` components.
 The existing Feetech script path remains as a compatibility launcher for saved
 profiles and delegates to the `ros2` adapter nested under the `feetech`
 component in `blacknode-drivers`.
+
+```text
+Feetech driver
+    -> robot device registry
+    -> normalized robot telemetry
+    -> UI, diagnostics, and safety
+```
+
+Serial, CAN, USB, register maps, and vendor SDK communication stay inside
+`blacknode-drivers`. Device and telemetry consumers depend on normalized robot
+contracts rather than physical transports.
 
 <video src="https://github.com/user-attachments/assets/80a9b797-ecf7-47d3-b6d3-baad7c0ea170" controls width="860"></video>
 
@@ -26,6 +41,14 @@ This package owns the user-facing robot abstraction:
 - build, save, duplicate, load, and calibrate reusable robot profiles
 - bind semantic capabilities to replaceable package components
 - inspect each provider as available, unavailable, or unhealthy
+- represent connected devices, configuration, lifecycle, and health
+- publish normalized temperatures, voltage, faults, and device status
+
+The migrated device-service operator guide is in
+[`docs/devices.md`](docs/devices.md). Existing service units and configuration
+directories retain their `blacknode-hardware` identifiers for deployed-device
+compatibility; the installable package and Python namespace are now
+`blacknode-robot` and `blacknode_robot`.
 
 Robot-specific packages provide protocol driver descriptors and hardware
 bridges. Transport packages such as
