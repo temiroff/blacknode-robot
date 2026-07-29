@@ -7,9 +7,6 @@ configuration, discovery, lifecycle, and health.
 `blacknode-robot/telemetry` owns normalized temperatures, voltage, faults,
 joint state, and device status.
 Physical driver implementations are selectable `blacknode-drivers` components.
-The existing Feetech script path remains as a compatibility launcher for saved
-profiles and delegates to the `ros2` adapter nested under the `feetech`
-component in `blacknode-drivers`.
 
 ```text
 Feetech driver
@@ -44,11 +41,24 @@ This package owns the user-facing robot abstraction:
 - represent connected devices, configuration, lifecycle, and health
 - publish normalized temperatures, voltage, faults, and device status
 
-The migrated device-service operator guide is in
-[`docs/devices.md`](docs/devices.md). Existing service units and configuration
-directories retain their `blacknode-hardware` identifiers for deployed-device
-compatibility; the installable package and Python namespace are now
-`blacknode-robot` and `blacknode_robot`.
+The device-service operator guide is in [`docs/devices.md`](docs/devices.md).
+
+## Canonical robot state
+
+`blacknode-robot/contracts` owns the transport-neutral state model:
+
+```text
+Driver-specific feedback
+    -> JointState / DeviceState / FaultState
+        -> workflows
+        -> telemetry
+        -> motion safety
+        -> ROS 2 and UI adapters
+```
+
+Canonical joint position and velocity use radians and radians per second.
+ROS `sensor_msgs/msg/JointState`, vendor registers, MQTT payloads, and editor
+monitor records are adapter representations of this model.
 
 Robot-specific packages provide protocol driver descriptors and hardware
 bridges. Transport packages such as

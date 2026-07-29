@@ -1,6 +1,12 @@
 """Connected-device contracts and safe provider lifecycle."""
 
-from .contracts import DeviceState, MobileBaseCommand, MobileBaseProvider
+from .contracts import (
+    DeviceState,
+    FaultState,
+    JointState,
+    MobileBaseCommand,
+    MobileBaseProvider,
+)
 from .safety import SafetyGate, SafetyLimits
 from .adapters import (
     I2CMecanumBase,
@@ -18,6 +24,8 @@ __version__ = service_version()
 
 __all__ = [
     "DeviceState",
+    "FaultState",
+    "JointState",
     "MobileBaseCommand",
     "MobileBaseProvider",
     "SafetyGate",

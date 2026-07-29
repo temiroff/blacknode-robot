@@ -4,10 +4,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import math
 import re
 import threading
 import time
 from typing import Any, Protocol
+
+from blacknode_robot.devices.contracts import DeviceState, FaultState, JointState
 
 
 _STREAM_NAME = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
@@ -180,36 +183,70 @@ class RobotStateTelemetrySampler:
     def sample_once(self) -> TelemetryEnvelope:
         status = self.runtime.status()
         source_time = float(status.get("updated_at") or time.time())
-        positions = {
+        positions_deg = {
             str(name): float(value)
             for name, value in dict(status.get("positions") or {}).items()
             if isinstance(value, (int, float)) and not isinstance(value, bool)
         }
-        velocities: dict[str, float] = {}
+        velocities_deg: dict[str, float] = {}
         if self._previous_time is not None and source_time > self._previous_time:
             elapsed = source_time - self._previous_time
-            velocities = {
+            velocities_deg = {
                 name: (value - self._previous_positions[name]) / elapsed
-                for name, value in positions.items()
+                for name, value in positions_deg.items()
                 if name in self._previous_positions
             }
-        self._previous_positions = positions
+        self._previous_positions = positions_deg
         self._previous_time = source_time
-        payload = {
-            "connected": bool(status.get("connected")),
-            "armed": bool(status.get("armed")),
-            "torque_enabled": status.get("torque_enabled"),
-            "torque_report_error": str(status.get("torque_report_error") or ""),
-            "leased_to_deployment": bool(status.get("leased_to_deployment")),
-            "joint_names": list(status.get("joint_names") or []),
-            "joint_positions": positions,
-            "joint_velocities": velocities,
-            "position_units": "degrees",
-            "velocity_units": "degrees_per_second",
-            "calibrated": status.get("calibrated"),
-            "error": str(status.get("error") or ""),
-        }
-        return self.bus.publish("robot-state", payload, source_time=source_time)
+        limits = {}
+        for name, raw in dict(status.get("limits") or {}).items():
+            if name not in positions_deg or not isinstance(raw, dict):
+                continue
+            try:
+                limits[str(name)] = (
+                    math.radians(float(raw["lower"])),
+                    math.radians(float(raw["upper"])),
+                )
+            except (KeyError, TypeError, ValueError):
+                continue
+        error = str(status.get("error") or "")
+        faults = (
+            [FaultState(code="device-error", message=error)]
+            if error
+            else []
+        )
+        state = DeviceState(
+            device_id=self.bus.device_id,
+            connected=bool(status.get("connected")),
+            armed=bool(status.get("armed")),
+            torque_enabled=status.get("torque_enabled"),
+            capabilities=list(status.get("capabilities") or []),
+            joint_state=JointState(
+                positions={
+                    name: math.radians(value)
+                    for name, value in positions_deg.items()
+                },
+                velocities={
+                    name: math.radians(value)
+                    for name, value in velocities_deg.items()
+                },
+                limits=limits,
+                source_time=source_time,
+            ),
+            faults=faults,
+            values={
+                "calibrated": status.get("calibrated"),
+                "leased_to_deployment": bool(status.get("leased_to_deployment")),
+                "torque_report_error": str(status.get("torque_report_error") or ""),
+            },
+            error=error,
+            updated_at=source_time,
+        )
+        return self.bus.publish(
+            "robot-state",
+            state.as_dict(),
+            source_time=source_time,
+        )
 
     def start(self) -> None:
         if self._thread is not None and self._thread.is_alive():

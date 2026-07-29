@@ -12,7 +12,10 @@ from urllib.request import Request, urlopen
 import json
 
 from blacknode_robot.devices import (
+    DeviceState,
+    FaultState,
     I2CMecanumBase,
+    JointState,
     SerialJointConfig,
     SerialJointMonitor,
     SerialJointSpec,
@@ -188,10 +191,55 @@ def test_robot_state_telemetry_derives_joint_velocity():
     sampler.sample_once()
     second = sampler.sample_once()
 
-    assert second.payload["joint_positions"] == {"joint_1": 14.0}
-    assert second.payload["joint_velocities"] == {"joint_1": 2.0}
-    assert second.payload["position_units"] == "degrees"
-    assert second.payload["velocity_units"] == "degrees_per_second"
+    assert second.payload["kind"] == "blacknode.device-state"
+    joint_state = second.payload["joint_state"]
+    assert joint_state["kind"] == "blacknode.joint-state"
+    assert joint_state["positions"]["joint_1"] == pytest.approx(
+        14.0 * 3.141592653589793 / 180.0
+    )
+    assert joint_state["velocities"]["joint_1"] == pytest.approx(
+        2.0 * 3.141592653589793 / 180.0
+    )
+    assert joint_state["position_unit"] == "radian"
+    assert joint_state["velocity_unit"] == "radian/s"
+
+
+def test_canonical_robot_state_is_versioned_and_transport_neutral():
+    joint_state = JointState(
+        positions={"shoulder": 0.25},
+        velocities={"shoulder": 0.1},
+        limits={"shoulder": (-1.0, 1.0)},
+        source_time=10.0,
+        receive_time=10.1,
+    )
+    fault = FaultState(
+        code="over-temperature",
+        message="servo temperature exceeded the configured limit",
+        severity="critical",
+        source_time=10.0,
+        vendor_code="FEETECH-7",
+    )
+    state = DeviceState(
+        device_id="arm-01",
+        connected=True,
+        armed=False,
+        torque_enabled=False,
+        capabilities=["joint_group"],
+        joint_state=joint_state,
+        faults=[fault],
+        temperatures_c={"shoulder": 72.0},
+        voltage_v=12.1,
+        updated_at=10.1,
+    )
+
+    payload = state.as_dict()
+
+    assert payload["kind"] == "blacknode.device-state"
+    assert payload["schema_version"] == 1
+    assert payload["joint_state"] == joint_state.as_dict()
+    assert payload["faults"] == [fault.as_dict()]
+    assert "topic" not in json.dumps(payload).lower()
+    assert "sensor_msgs" not in json.dumps(payload)
 
 
 def test_mqtt_telemetry_is_optional_and_uses_non_retained_versioned_topics(tmp_path: Path):
