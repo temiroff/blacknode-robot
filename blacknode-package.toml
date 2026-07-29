@@ -1,6 +1,6 @@
 [package]
 name = "blacknode-robot"
-version = "0.4.0"
+version = "0.5.0"
 description = "Robot contracts, connected-device lifecycle, normalized telemetry, profiles, and driver launch."
 requires-blacknode = ">=0.3.0"
 layer = "robot"
@@ -16,9 +16,8 @@ capabilities = ["robot.contracts", "robot.profiles", "robot.calibration", "robot
 nodes = ["nodes"]
 module-root = true
 
-# Declared for the package roadmap; sources land in components/contracts/nodes.
 [components.contracts]
-description = "Robot and joint definition contracts."
+description = "Canonical transport-neutral JointState, DeviceState, FaultState, robot, and joint contracts."
 default = true
 capabilities = ["robot.contracts"]
 
