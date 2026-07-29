@@ -426,6 +426,7 @@ def test_driver_rosbridge_reconnects_and_resumes_state_stream():
         object(),
         {"shoulder_pan": 2048},
         ReconnectStopEvent(),
+        mod.BusTelemetry(),
     )
 
     assert len(topics["/joint_config"].messages) == 2
