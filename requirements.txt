@@ -1,2 +1,3 @@
 feetech-servo-sdk>=1.0
+pyserial>=3.5
 roslibpy>=1.5

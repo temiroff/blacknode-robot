@@ -1,0 +1,14 @@
+id: generic_i2c_mecanum
+provider: i2c_mecanum
+device_id: base-0
+capabilities:
+  - mobile_base
+transport:
+  bus: 1
+  address: 122
+  motor_register_start: 31
+  motor_polarity: [-1, 1, -1, 1]
+safety:
+  max_linear_speed: 0.25
+  max_angular_speed: 0.75
+  command_timeout: 0.5

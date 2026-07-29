@@ -5,10 +5,12 @@ state separately from the Blacknode core checkout that may contain it.
 
 ## Scope
 
-Keep generic USB discovery, permission checks, driver descriptors and launch,
-robot profiles, hardware-bound calibration, and capability bindings here.
-Keep physical drivers in `blacknode-drivers`, generic controllers in
-`blacknode-controllers`, and ROS transport/control nodes in `blacknode-ros2`.
+Keep connected-device representation, configuration, discovery, lifecycle,
+health, normalized telemetry, generic USB discovery, permission checks, driver
+descriptors and launch, robot profiles, hardware-bound calibration, and
+capability bindings here. Keep physical protocol communication in
+`blacknode-drivers`, generic controllers in `blacknode-motion`, and ROS
+transport/control nodes in `blacknode-ros2`.
 
 ## Safety rules
 
@@ -25,11 +27,21 @@ Keep physical drivers in `blacknode-drivers`, generic controllers in
   upstream controller also checks them.
 - Serialize bus transactions and make repeated idempotent control messages safe.
 - Retain actionable driver errors in runtime status after process exit.
+- Device services require authenticated transport for deployment and motion
+  endpoints. Never log pairing tokens or place them in process arguments,
+  tracked files, URLs, or deployment artifacts.
+- Device providers start disarmed, commands expire at their freshness
+  deadline, and stop remains idempotent.
 
 ## Development rules
 
 - Preserve generic profile and driver contracts; keep model-specific behavior
   behind descriptors/drivers.
+- Keep `devices` dependent on stable capability contracts. Transport details,
+  device paths, registers, SDK imports, and platform-specific communication
+  remain inside `blacknode-drivers` providers.
+- Keep `telemetry` normalized across providers. Temperatures, voltage, faults,
+  connection state, and joint state must retain timestamps and freshness.
 - Guard optional SDK and rosbridge imports so package discovery still works.
 - Update `blacknode-package.toml`, templates, tests, and README with new public
   nodes or dependencies.
