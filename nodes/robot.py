@@ -21,6 +21,7 @@ import subprocess
 import sys
 import time
 from collections import defaultdict
+from pathlib import Path
 from typing import Any
 
 from blacknode.node import Any as AnyPort
@@ -427,6 +428,41 @@ def _split_command(command: str) -> list[str]:
         return [argv[i] for i in range(argc.value)]
     finally:
         kernel32.LocalFree(ctypes.cast(argv, ctypes.c_void_p))
+
+
+def _driver_environment() -> dict[str, str]:
+    """Expose loaded extension modules to managed driver child processes."""
+    env = os.environ.copy()
+    python_paths: list[str] = []
+
+    def add_path(value: str | os.PathLike[str]) -> None:
+        path = str(Path(value).expanduser().resolve())
+        if path not in python_paths:
+            python_paths.append(path)
+
+    # The launcher itself lives in blacknode-robot/nodes. Adding its package
+    # root guarantees that canonical blacknode_robot contracts remain
+    # importable after the driver starts in a separate Python process.
+    add_path(Path(__file__).resolve().parents[1])
+
+    for value in str(env.get("PYTHONPATH") or "").split(os.pathsep):
+        if value.strip():
+            add_path(value)
+
+    # BLACKNODE_PACKAGE_PATH contains directories of independently installed
+    # extension repositories. The parent workflow loads their nodes in-process,
+    # but subprocesses do not inherit those sys.path mutations.
+    for root_value in str(env.get("BLACKNODE_PACKAGE_PATH") or "").split(os.pathsep):
+        if not root_value.strip():
+            continue
+        root = Path(root_value).expanduser()
+        if not root.is_dir():
+            continue
+        for manifest in sorted(root.glob("*/blacknode-package.toml")):
+            add_path(manifest.parent)
+
+    env["PYTHONPATH"] = os.pathsep.join(python_paths)
+    return env
 
 
 def _driver_running(run_id: str) -> bool:
@@ -877,6 +913,7 @@ def robot_driver_launcher(ctx: dict) -> dict:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
             text=True,
+            env=_driver_environment(),
             start_new_session=True,
         )
     except Exception as exc:  # noqa: BLE001
