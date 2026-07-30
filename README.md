@@ -92,7 +92,27 @@ and verification commands.
 | `RobotDriverLauncher` | Starts/stops a driver process from the descriptor |
 | `RobotConnectionDashboard` | Shows USB, driver, ROS interface, live joint positions, home references, safe ranges, and calibration source in one view |
 | `RobotMonitor` | Opens a read-only live canvas view for a registered robot's connection, motion state, telemetry, streams, and joints |
+| `RobotServo` | Represents one servo connected to a Robot monitor target, with live position, velocity, raw ticks, calibrated limits, torque, temperature, voltage, faults, and a safe target preview |
 | `RobotROSInterfaceCheck` | Matches a live ROS graph to a supported robot interface profile without publishing commands |
+
+## Servo debugging
+
+Open **Servo Debug Monitor**, select a registered robot on the Robot Monitor
+node, and connect any number of `RobotServo` nodes to its `robot` output. Each
+Servo node selects an ID independently while all cards share one live telemetry
+connection to the robot.
+
+The position slider is a command preview. `RobotServo` produces `joint`,
+`target_position`, and a canonical `command` request, but never writes to a
+driver or bus. Connect `joint` and `target_position` to a
+`blacknode-motion` arm execution node when physical movement is intended.
+Motion arbitration, calibration limits, freshness, ownership, and explicit
+arming remain in the motion path.
+
+When a calibration is active, the card displays its safe range and marks the
+limits as calibrated. Raw position, temperature, voltage, effort, and hardware
+fault fields appear when the selected provider reports them; unavailable
+measurements are labeled **Not reported** rather than synthesized.
 
 ## Complete robot bringup
 

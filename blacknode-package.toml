@@ -1,6 +1,6 @@
 [package]
 name = "blacknode-robot"
-version = "0.5.0"
+version = "0.5.1"
 description = "Robot contracts, connected-device lifecycle, normalized telemetry, profiles, and driver launch."
 requires-blacknode = ">=0.3.0"
 layer = "robot"
@@ -77,7 +77,7 @@ capabilities = [
   "robot.device-health",
 ]
 nodes = ["blacknode_robot/devices/nodes"]
-node-types = ["HardwareCapabilities"]
+node-types = ["HardwareCapabilities", "RobotServo"]
 
 [components.devices.dependencies]
 pip = ["pyserial>=3.5", "feetech-servo-sdk>=1.0"]
