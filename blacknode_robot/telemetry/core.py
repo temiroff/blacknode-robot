@@ -199,13 +199,34 @@ class RobotStateTelemetrySampler:
         self._previous_positions = positions_deg
         self._previous_time = source_time
         limits = {}
+        active_calibration = (
+            status.get("calibration")
+            if isinstance(status.get("calibration"), dict)
+            else {}
+        )
+        calibration_joints = dict(active_calibration.get("joints") or {})
+        calibration_topology = dict(active_calibration.get("topology") or {})
         for name, raw in dict(status.get("limits") or {}).items():
             if name not in positions_deg or not isinstance(raw, dict):
                 continue
             try:
+                lower = raw["lower"] if "lower" in raw else raw["min"]
+                upper = raw["upper"] if "upper" in raw else raw["max"]
                 limits[str(name)] = (
-                    math.radians(float(raw["lower"])),
-                    math.radians(float(raw["upper"])),
+                    math.radians(float(lower)),
+                    math.radians(float(upper)),
+                )
+            except (KeyError, TypeError, ValueError):
+                continue
+        for servo_id, semantic_name in calibration_topology.items():
+            hardware_name = f"servo_{servo_id}"
+            raw = calibration_joints.get(str(semantic_name))
+            if hardware_name not in positions_deg or not isinstance(raw, dict):
+                continue
+            try:
+                limits[hardware_name] = (
+                    math.radians(float(raw["safe_min_deg"])),
+                    math.radians(float(raw["safe_max_deg"])),
                 )
             except (KeyError, TypeError, ValueError):
                 continue
@@ -234,8 +255,25 @@ class RobotStateTelemetrySampler:
                 source_time=source_time,
             ),
             faults=faults,
+            temperatures_c={
+                str(name): float(value)
+                for name, value in dict(status.get("temperatures_c") or {}).items()
+                if isinstance(value, (int, float)) and not isinstance(value, bool)
+            },
+            voltage_v=(
+                float(status["voltage_v"])
+                if isinstance(status.get("voltage_v"), (int, float))
+                and not isinstance(status.get("voltage_v"), bool)
+                else None
+            ),
             values={
                 "calibrated": status.get("calibrated"),
+                "calibration": active_calibration,
+                "raw_positions": {
+                    str(name): int(value)
+                    for name, value in dict(status.get("raw_positions") or {}).items()
+                    if isinstance(value, int) and not isinstance(value, bool)
+                },
                 "leased_to_deployment": bool(status.get("leased_to_deployment")),
                 "torque_report_error": str(status.get("torque_report_error") or ""),
             },

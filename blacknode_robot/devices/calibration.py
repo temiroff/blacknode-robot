@@ -55,6 +55,14 @@ class CalibrationStore:
                 "activated_at": self._active["activated_at"],
                 "joint_count": len(self._active["topology"]),
                 "digest": self._active["digest"],
+                "topology": dict(self._active["topology"]),
+                "joints": {
+                    str(name): dict(values)
+                    for name, values in dict(
+                        self._active["calibration"].get("joints") or {}
+                    ).items()
+                    if isinstance(values, dict)
+                },
                 "error": "",
             }
 

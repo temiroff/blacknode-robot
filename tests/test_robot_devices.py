@@ -204,6 +204,47 @@ def test_robot_state_telemetry_derives_joint_velocity():
     assert joint_state["velocity_unit"] == "radian/s"
 
 
+def test_robot_state_telemetry_preserves_calibrated_limits_and_servo_diagnostics():
+    class StatusSource:
+        def status(self):
+            return {
+                "connected": True,
+                "armed": False,
+                "torque_enabled": False,
+                "positions": {"servo_2": 12.5},
+                "raw_positions": {"servo_2": 2190},
+                "limits": {"servo_2": {"min": -180.0, "max": 180.0}},
+                "calibrated": True,
+                "calibration": {
+                    "profile_id": "so_arm101",
+                    "hardware_id": "SERIAL-42",
+                    "topology": {"2": "shoulder_lift"},
+                    "joints": {
+                        "shoulder_lift": {
+                            "safe_min_deg": -70.0,
+                            "safe_max_deg": 80.0,
+                        },
+                    },
+                },
+                "temperatures_c": {"servo_2": 41.5},
+                "voltage_v": 12.2,
+                "updated_at": 100.0,
+            }
+
+    bus = TelemetryBus("arm-01")
+    sample = RobotStateTelemetrySampler(StatusSource(), bus).sample_once()
+    payload = sample.payload
+
+    assert payload["joint_state"]["limits"]["servo_2"] == {
+        "lower": pytest.approx(-70.0 * 3.141592653589793 / 180.0),
+        "upper": pytest.approx(80.0 * 3.141592653589793 / 180.0),
+    }
+    assert payload["values"]["raw_positions"] == {"servo_2": 2190}
+    assert payload["values"]["calibrated"] is True
+    assert payload["temperatures_c"] == {"servo_2": 41.5}
+    assert payload["voltage_v"] == 12.2
+
+
 def test_canonical_robot_state_is_versioned_and_transport_neutral():
     joint_state = JointState(
         positions={"shoulder": 0.25},

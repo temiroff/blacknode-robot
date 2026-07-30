@@ -1,0 +1,133 @@
+{
+  "kind": "blacknode.workflow",
+  "schema_version": 1,
+  "name": "Servo Debug Monitor",
+  "saved_at": "2026-07-29T18:30:00-07:00",
+  "entrypoint": {
+    "node_id": "servo_1",
+    "port": "report"
+  },
+  "metadata": {
+    "template": true,
+    "description": "Select one registered robot and inspect six servos independently. Each Servo card shows live position, velocity, raw ticks, limits, calibration, torque, temperature, voltage, and faults. Target sliders create preview command requests and never write to hardware directly.",
+    "color": "#14b8a6",
+    "required_packages": [
+      "blacknode-robot"
+    ],
+    "required_components": [
+      "blacknode-robot/capabilities",
+      "blacknode-robot/devices",
+      "blacknode-robot/telemetry"
+    ]
+  },
+  "node_meta": {
+    "robot": {
+      "id": "robot",
+      "type": "RobotMonitor",
+      "pos": [40, 280],
+      "params": {
+        "robot_id": "",
+        "robot_name": ""
+      },
+      "inputs": ["robot_id", "robot_name"],
+      "outputs": ["robot"],
+      "input_types": {
+        "robot_id": "Text",
+        "robot_name": "Text"
+      },
+      "output_types": {
+        "robot": "Dict"
+      },
+      "input_defaults": {
+        "robot_id": "",
+        "robot_name": ""
+      }
+    },
+    "servo_1": {
+      "id": "servo_1",
+      "type": "RobotServo",
+      "pos": [900, 40],
+      "params": {
+        "servo_id": 1,
+        "joint_name": "",
+        "target_position": 0.0,
+        "follow_feedback": true,
+        "units": "degrees"
+      },
+      "inputs": ["robot", "state", "servo_id", "joint_name", "target_position", "follow_feedback", "units"],
+      "outputs": ["servo", "available", "joint", "servo_id", "position", "velocity", "raw_position", "limits", "calibrated", "temperature_c", "voltage_v", "faults", "target_position", "command", "report"],
+      "input_types": {"robot": "Dict", "state": "Dict", "servo_id": "Int", "joint_name": "Text", "target_position": "Float", "follow_feedback": "Bool", "units": "Text"},
+      "output_types": {"servo": "Dict", "available": "Bool", "joint": "Text", "servo_id": "Int", "position": "Float", "velocity": "Float", "raw_position": "Int", "limits": "Dict", "calibrated": "Bool", "temperature_c": "Float", "voltage_v": "Float", "faults": "List", "target_position": "Float", "command": "Dict", "report": "Text"},
+      "input_defaults": {"robot": {}, "state": {}, "servo_id": 1, "joint_name": "", "target_position": 0.0, "follow_feedback": true, "units": "degrees"},
+      "input_choices": {"units": ["degrees", "radians"]}
+    },
+    "servo_2": {
+      "id": "servo_2",
+      "type": "RobotServo",
+      "pos": [1300, 40],
+      "params": {"servo_id": 2, "joint_name": "", "target_position": 0.0, "follow_feedback": true, "units": "degrees"},
+      "inputs": ["robot", "state", "servo_id", "joint_name", "target_position", "follow_feedback", "units"],
+      "outputs": ["servo", "available", "joint", "servo_id", "position", "velocity", "raw_position", "limits", "calibrated", "temperature_c", "voltage_v", "faults", "target_position", "command", "report"],
+      "input_types": {"robot": "Dict", "state": "Dict", "servo_id": "Int", "joint_name": "Text", "target_position": "Float", "follow_feedback": "Bool", "units": "Text"},
+      "output_types": {"servo": "Dict", "available": "Bool", "joint": "Text", "servo_id": "Int", "position": "Float", "velocity": "Float", "raw_position": "Int", "limits": "Dict", "calibrated": "Bool", "temperature_c": "Float", "voltage_v": "Float", "faults": "List", "target_position": "Float", "command": "Dict", "report": "Text"},
+      "input_defaults": {"robot": {}, "state": {}, "servo_id": 2, "joint_name": "", "target_position": 0.0, "follow_feedback": true, "units": "degrees"},
+      "input_choices": {"units": ["degrees", "radians"]}
+    },
+    "servo_3": {
+      "id": "servo_3",
+      "type": "RobotServo",
+      "pos": [900, 420],
+      "params": {"servo_id": 3, "joint_name": "", "target_position": 0.0, "follow_feedback": true, "units": "degrees"},
+      "inputs": ["robot", "state", "servo_id", "joint_name", "target_position", "follow_feedback", "units"],
+      "outputs": ["servo", "available", "joint", "servo_id", "position", "velocity", "raw_position", "limits", "calibrated", "temperature_c", "voltage_v", "faults", "target_position", "command", "report"],
+      "input_types": {"robot": "Dict", "state": "Dict", "servo_id": "Int", "joint_name": "Text", "target_position": "Float", "follow_feedback": "Bool", "units": "Text"},
+      "output_types": {"servo": "Dict", "available": "Bool", "joint": "Text", "servo_id": "Int", "position": "Float", "velocity": "Float", "raw_position": "Int", "limits": "Dict", "calibrated": "Bool", "temperature_c": "Float", "voltage_v": "Float", "faults": "List", "target_position": "Float", "command": "Dict", "report": "Text"},
+      "input_defaults": {"robot": {}, "state": {}, "servo_id": 3, "joint_name": "", "target_position": 0.0, "follow_feedback": true, "units": "degrees"},
+      "input_choices": {"units": ["degrees", "radians"]}
+    },
+    "servo_4": {
+      "id": "servo_4",
+      "type": "RobotServo",
+      "pos": [1300, 420],
+      "params": {"servo_id": 4, "joint_name": "", "target_position": 0.0, "follow_feedback": true, "units": "degrees"},
+      "inputs": ["robot", "state", "servo_id", "joint_name", "target_position", "follow_feedback", "units"],
+      "outputs": ["servo", "available", "joint", "servo_id", "position", "velocity", "raw_position", "limits", "calibrated", "temperature_c", "voltage_v", "faults", "target_position", "command", "report"],
+      "input_types": {"robot": "Dict", "state": "Dict", "servo_id": "Int", "joint_name": "Text", "target_position": "Float", "follow_feedback": "Bool", "units": "Text"},
+      "output_types": {"servo": "Dict", "available": "Bool", "joint": "Text", "servo_id": "Int", "position": "Float", "velocity": "Float", "raw_position": "Int", "limits": "Dict", "calibrated": "Bool", "temperature_c": "Float", "voltage_v": "Float", "faults": "List", "target_position": "Float", "command": "Dict", "report": "Text"},
+      "input_defaults": {"robot": {}, "state": {}, "servo_id": 4, "joint_name": "", "target_position": 0.0, "follow_feedback": true, "units": "degrees"},
+      "input_choices": {"units": ["degrees", "radians"]}
+    },
+    "servo_5": {
+      "id": "servo_5",
+      "type": "RobotServo",
+      "pos": [900, 800],
+      "params": {"servo_id": 5, "joint_name": "", "target_position": 0.0, "follow_feedback": true, "units": "degrees"},
+      "inputs": ["robot", "state", "servo_id", "joint_name", "target_position", "follow_feedback", "units"],
+      "outputs": ["servo", "available", "joint", "servo_id", "position", "velocity", "raw_position", "limits", "calibrated", "temperature_c", "voltage_v", "faults", "target_position", "command", "report"],
+      "input_types": {"robot": "Dict", "state": "Dict", "servo_id": "Int", "joint_name": "Text", "target_position": "Float", "follow_feedback": "Bool", "units": "Text"},
+      "output_types": {"servo": "Dict", "available": "Bool", "joint": "Text", "servo_id": "Int", "position": "Float", "velocity": "Float", "raw_position": "Int", "limits": "Dict", "calibrated": "Bool", "temperature_c": "Float", "voltage_v": "Float", "faults": "List", "target_position": "Float", "command": "Dict", "report": "Text"},
+      "input_defaults": {"robot": {}, "state": {}, "servo_id": 5, "joint_name": "", "target_position": 0.0, "follow_feedback": true, "units": "degrees"},
+      "input_choices": {"units": ["degrees", "radians"]}
+    },
+    "servo_6": {
+      "id": "servo_6",
+      "type": "RobotServo",
+      "pos": [1300, 800],
+      "params": {"servo_id": 6, "joint_name": "", "target_position": 0.0, "follow_feedback": true, "units": "degrees"},
+      "inputs": ["robot", "state", "servo_id", "joint_name", "target_position", "follow_feedback", "units"],
+      "outputs": ["servo", "available", "joint", "servo_id", "position", "velocity", "raw_position", "limits", "calibrated", "temperature_c", "voltage_v", "faults", "target_position", "command", "report"],
+      "input_types": {"robot": "Dict", "state": "Dict", "servo_id": "Int", "joint_name": "Text", "target_position": "Float", "follow_feedback": "Bool", "units": "Text"},
+      "output_types": {"servo": "Dict", "available": "Bool", "joint": "Text", "servo_id": "Int", "position": "Float", "velocity": "Float", "raw_position": "Int", "limits": "Dict", "calibrated": "Bool", "temperature_c": "Float", "voltage_v": "Float", "faults": "List", "target_position": "Float", "command": "Dict", "report": "Text"},
+      "input_defaults": {"robot": {}, "state": {}, "servo_id": 6, "joint_name": "", "target_position": 0.0, "follow_feedback": true, "units": "degrees"},
+      "input_choices": {"units": ["degrees", "radians"]}
+    }
+  },
+  "edges": [
+    {"from": "robot", "from_port": "robot", "to": "servo_1", "to_port": "robot"},
+    {"from": "robot", "from_port": "robot", "to": "servo_2", "to_port": "robot"},
+    {"from": "robot", "from_port": "robot", "to": "servo_3", "to_port": "robot"},
+    {"from": "robot", "from_port": "robot", "to": "servo_4", "to_port": "robot"},
+    {"from": "robot", "from_port": "robot", "to": "servo_5", "to_port": "robot"},
+    {"from": "robot", "from_port": "robot", "to": "servo_6", "to_port": "robot"}
+  ]
+}

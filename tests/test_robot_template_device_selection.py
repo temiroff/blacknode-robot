@@ -11,6 +11,7 @@ _EXPECTED_ROBOTS = {
     "editable-so-arm101-profile.json": {"robot": 0},
     "robot-guided-calibration.json": {"robot": 0},
     "robot-sensor-attachments.json": {},
+    "servo-debug-monitor.json": {},
     "so-arm101-motion-test.json": {"robot": 0},
 }
 
