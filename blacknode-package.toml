@@ -1,6 +1,6 @@
 [package]
 name = "blacknode-robot"
-version = "0.5.1"
+version = "0.5.2"
 description = "Robot contracts, connected-device lifecycle, normalized telemetry, profiles, and driver launch."
 requires-blacknode = ">=0.3.0"
 layer = "robot"
@@ -49,10 +49,11 @@ node-types = [
 [components.calibration]
 description = "Calibration capture and replay."
 default = true
-capabilities = ["robot.calibration"]
+capabilities = ["robot.calibration", "robot.calibration-control.mock"]
 
 # Declared for the package roadmap; sources land in components/capabilities/nodes.
 node-types = [
+  "RobotCalibrationControl", "RobotCalibrationMockProvider",
   "RobotCalibrationRecorder"
 ]
 
@@ -64,9 +65,11 @@ capabilities = ["robot.capabilities"]
 # Declared for the package roadmap; sources land in components/authorization/nodes.
 node-types = [
   "RobotAttachment", "RobotAttachmentList", "RobotCapabilityBinding",
-  "RobotCapabilityInspect", "RobotCapabilityList", "RobotCapabilityProfile",
+  "ComputeDevice", "DeviceInspect", "RobotCapabilityInspect",
+  "RobotCapabilityList", "RobotCapabilityProfile",
   "RobotConnectionDashboard", "RobotDiscovery", "RobotMonitor",
-  "RobotROSInterfaceCheck", "RobotUSBDiscovery"
+  "RobotRawMonitor", "RobotRawMonitorMockProvider",
+  "RobotROSCapabilityDiscover", "RobotROSInterfaceCheck", "RobotUSBDiscovery"
 ]
 
 [components.devices]

@@ -1,6 +1,7 @@
-"""Read-only ROS 2 interface checks driven entirely by robot profiles."""
+"""Read-only ROS 2 capability discovery and profile interface checks."""
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from blacknode.node import Bool, Dict, List, Text, node
@@ -19,6 +20,224 @@ def _ros_names(values: Any) -> set[str]:
         if name:
             names.add(name)
     return names
+
+
+def _ros_topic_entries(values: Any) -> list[dict[str, Any]]:
+    """Normalize `ros2 topic list -t` rows and future structured inventories."""
+    if not isinstance(values, list):
+        return []
+    entries: list[dict[str, Any]] = []
+    for value in values:
+        if isinstance(value, dict):
+            name = str(value.get("name") or value.get("topic") or "").strip()
+            raw_types = (
+                value.get("types")
+                if isinstance(value.get("types"), list)
+                else [value.get("message_type") or value.get("type")]
+            )
+            message_types = [
+                str(item or "").strip()
+                for item in raw_types
+                if str(item or "").strip()
+            ]
+        else:
+            row = str(value or "").strip()
+            if not row:
+                continue
+            name = row.split(maxsplit=1)[0]
+            groups = re.findall(r"\[([^\]]*)\]", row)
+            message_types = [
+                item.strip()
+                for group in groups
+                for item in group.split(",")
+                if item.strip()
+            ]
+        if name:
+            entries.append({
+                "name": name,
+                "message_types": sorted(set(message_types)),
+            })
+    return entries
+
+
+def _topic_capability_evidence(
+    name: str,
+    message_type: str,
+) -> list[dict[str, Any]]:
+    """Classify standard ROS interfaces without assuming a robot vendor."""
+    topic = name.lower()
+    msg = message_type.lower().strip()
+    evidence: list[dict[str, Any]] = []
+
+    def add(capability: str, role: str, score: int, reason: str) -> None:
+        evidence.append({
+            "capability": capability,
+            "kind": "topic",
+            "name": name,
+            "message_type": message_type,
+            "role": role,
+            "score": score,
+            "reason": reason,
+        })
+
+    if msg.endswith("/laserscan"):
+        add("lidar", "state", 100, "standard LaserScan telemetry")
+    elif msg.endswith("/pointcloud2"):
+        score = 85 if any(token in topic for token in ("lidar", "laser", "scan")) else 70
+        add(
+            "lidar",
+            "state",
+            score,
+            "point-cloud telemetry; sensor source needs confirmation",
+        )
+    elif msg.endswith("/imu"):
+        add("imu", "state", 100, "standard IMU telemetry")
+    elif msg.endswith("/batterystate"):
+        add("battery", "state", 100, "standard battery telemetry")
+    elif msg.endswith("/navsatfix"):
+        add("gps", "state", 100, "standard GNSS telemetry")
+    elif msg.endswith("/odometry"):
+        add("mobile_base", "state", 85, "standard base odometry telemetry")
+    elif msg.endswith("/twist") and "cmd_vel" in topic:
+        add(
+            "mobile_base",
+            "command",
+            85,
+            "velocity command interface; direction and safety need confirmation",
+        )
+    elif msg.endswith("/jointstate"):
+        add("joint_state", "state", 100, "standard joint feedback telemetry")
+    elif msg.endswith("/compressedimage"):
+        capability = "depth_camera" if "depth" in topic else "camera"
+        add(capability, "state", 95, "standard compressed image telemetry")
+    elif msg.endswith("/image"):
+        capability = "depth_camera" if "depth" in topic else "camera"
+        add(capability, "state", 100, "standard image telemetry")
+    elif msg.endswith("/camerainfo"):
+        capability = "depth_camera" if "depth" in topic else "camera"
+        add(capability, "metadata", 65, "camera calibration metadata")
+    elif msg.endswith("/audiodata") or msg.endswith("/audio"):
+        add("microphone", "state", 90, "audio telemetry")
+    return evidence
+
+
+def _confidence(score: int) -> str:
+    if score >= 90:
+        return "high"
+    if score >= 65:
+        return "medium"
+    return "low"
+
+
+@node(
+    name="RobotROSCapabilityDiscover",
+    component="capabilities",
+    category=_CATEGORY,
+    description=(
+        "Infer generic robot capability candidates from a live ROS 2 graph. "
+        "Read-only: reports evidence and never binds or commands hardware."
+    ),
+    inputs={
+        "topics": List(default=[]),
+        "nodes": List(default=[]),
+        "services": List(default=[]),
+    },
+    outputs={
+        "found": Bool,
+        "capabilities": List,
+        "unclassified": List,
+        "inventory": Dict,
+        "report": Text,
+    },
+)
+def robot_ros_capability_discover(ctx: dict) -> dict:
+    topic_entries = _ros_topic_entries(ctx.get("topics"))
+    nodes = sorted(_ros_names(ctx.get("nodes")))
+    services = sorted(_ros_names(ctx.get("services")))
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    classified_topics: set[str] = set()
+    for entry in topic_entries:
+        name = entry["name"]
+        for message_type in entry["message_types"]:
+            for evidence in _topic_capability_evidence(name, message_type):
+                grouped.setdefault(evidence["capability"], []).append(evidence)
+                classified_topics.add(name)
+
+    candidates: list[dict[str, Any]] = []
+    for capability, evidence in grouped.items():
+        roles = {str(item["role"]) for item in evidence}
+        score = max(int(item["score"]) for item in evidence)
+        if capability == "mobile_base" and {"state", "command"} <= roles:
+            score = max(score, 95)
+        state_topics = sorted({
+            str(item["name"])
+            for item in evidence
+            if item["role"] in {"state", "metadata"}
+        })
+        command_topics = sorted({
+            str(item["name"])
+            for item in evidence
+            if item["role"] == "command"
+        })
+        candidates.append({
+            "kind": "blacknode.robot-capability-candidate",
+            "schema_version": 1,
+            "capability": capability,
+            "confidence": _confidence(score),
+            "score": score,
+            "state_topics": state_topics,
+            "command_topics": command_topics,
+            "safe_to_read": bool(state_topics),
+            "requires_confirmation": True,
+            "evidence": sorted(
+                evidence,
+                key=lambda item: (-int(item["score"]), str(item["name"])),
+            ),
+        })
+    candidates.sort(key=lambda item: (-int(item["score"]), str(item["capability"])))
+    unclassified = [
+        entry
+        for entry in topic_entries
+        if entry["name"] not in classified_topics
+    ]
+
+    lines = [
+        "Generic ROS 2 capability discovery",
+        (
+            f"observed: {len(topic_entries)} topic(s), "
+            f"{len(nodes)} node(s), {len(services)} service(s)"
+        ),
+        "",
+    ]
+    if candidates:
+        for candidate in candidates:
+            evidence_topics = candidate["state_topics"] + candidate["command_topics"]
+            lines.append(
+                f"[{candidate['confidence'].upper()}] {candidate['capability']}: "
+                f"{', '.join(evidence_topics)}"
+            )
+    else:
+        lines.append("[NONE] No capability candidates were identified.")
+    lines.extend([
+        "",
+        (
+            "Discovery is read-only. Confirm each candidate before creating a "
+            "provider binding; command topics were not published."
+        ),
+    ])
+    return {
+        "found": bool(candidates),
+        "capabilities": candidates,
+        "unclassified": unclassified,
+        "inventory": {
+            "topics": topic_entries,
+            "nodes": nodes,
+            "services": services,
+            "classified_topic_count": len(classified_topics),
+            "unclassified_topic_count": len(unclassified),
+        },
+        "report": "\n".join(lines),
+    }
 
 
 def _profile_bindings(profile: dict[str, Any]) -> list[dict[str, Any]]:

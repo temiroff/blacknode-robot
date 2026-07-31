@@ -73,6 +73,8 @@ and verification commands.
 
 | Node | What it does |
 |---|---|
+| `ComputeDevice` | Selects a registered computer by stable ID and exposes its credential-free read-only inspection snapshot |
+| `DeviceInspect` | Splits a device snapshot into environment, ROS 2 graph, capability candidates, unclassified interfaces, and complete inventory |
 | `RobotDriverDescriptor` | Declares a driver command template and standard topics |
 | `Robot` | Selects a robot, automatically finds its connection, applies calibration, and optionally starts its driver |
 | `RobotJointDefinition` | Defines one named joint, servo ID, range, zero, and direction |
@@ -82,6 +84,8 @@ and verification commands.
 | `RobotProfileLoad` | Loads a profile and the calibration for a connected hardware ID |
 | `RobotProfileList` | Lists built-in and locally saved profiles |
 | `RobotProfileDuplicate` | Copies a built-in or local profile under a new editable name |
+| `RobotCalibrationControl` | Selects a profile-bound hardware provider, safely releases or holds the robot, and streams normalized live joint feedback |
+| `RobotCalibrationMockProvider` | Hidden hardware-free implementation of the calibration-control provider contract for development and contract testing |
 | `RobotCalibrationRecorder` | Safely records released-arm limits and a home pose for one physical robot |
 | `RobotCapabilityBinding` | Binds one semantic capability to a replaceable package component, adapter, configuration, and optional hardware identity |
 | `RobotAttachment` | Describes one mounted camera, depth camera, LiDAR, IMU, GPS, microphone, or custom peripheral with its ROS 2 interface, frame, transform, provider, and hardware identity |
@@ -91,28 +95,93 @@ and verification commands.
 | `RobotCapabilityInspect` | Resolves a profile against installed components and live provider reports as available, unavailable, or unhealthy |
 | `RobotDriverLauncher` | Starts/stops a driver process from the descriptor |
 | `RobotConnectionDashboard` | Shows USB, driver, ROS interface, live joint positions, home references, safe ranges, and calibration source in one view |
-| `RobotMonitor` | Opens a read-only live canvas view for a registered robot's connection, motion state, telemetry, streams, and joints |
-| `RobotServo` | Represents one servo connected to a Robot monitor target, with live position, velocity, raw ticks, calibrated limits, torque, temperature, voltage, faults, and a safe target preview |
+| `RobotMonitor` | Opens a read-only live canvas view for a registered robot's connection, motion state, profile and calibration identity, joint coverage, telemetry, streams, and joints |
+| `RobotServo` | Represents one servo connected to a Robot monitor target, with live position, velocity, raw ticks, calibrated limits, torque, temperature, voltage, faults, and explicitly armed slider control |
+| `RobotROSCapabilityDiscover` | Infers generic camera, depth camera, LiDAR, IMU, GPS, battery, joint-state, and mobile-base candidates from standard live ROS 2 message types without binding or commanding hardware |
 | `RobotROSInterfaceCheck` | Matches a live ROS graph to a supported robot interface profile without publishing commands |
+
+## Compute-device inspection
+
+Open **Inspect a Compute Device**, choose a registered computer on the
+`ComputeDevice` node, and press **Run once**. `DeviceInspect` exposes the saved
+system environment, ROS 2 graph, generic capability candidates, unclassified
+interfaces, and complete inventory through typed outputs.
+
+A remote computer can be registered before Blacknode Runtime is installed.
+Use **Devices → Add device → Remote SSH**, confirm the host fingerprint, and
+press **Confirm and inspect**. The editor saves the stable device ID, public SSH
+identity, and sanitized snapshot. The password is discarded after the request.
+The graph never stores a password, pairing token, or arbitrary shell command.
+
+This snapshot path is read-only. Continuous streams and physical control use a
+paired Runtime or another managed provider with freshness, shutdown, limits,
+and explicit arming safeguards.
+
+## Generic ROS capability discovery
+
+Open the **Discover ROS Robot Capabilities** template and press **Run once**
+while the robot's existing ROS 2 bringup is active. The template checks the ROS
+runtime, inventories the graph, and displays capability candidates,
+unclassified topics, and the complete read-only inventory.
+
+Connect the typed output of `ROS2TopicList` to
+`RobotROSCapabilityDiscover.topics`. Connect `ROS2NodeList` and
+`ROS2ServiceList` when the complete graph inventory is useful. Discovery uses
+standard ROS message types as its primary evidence and returns versioned
+capability candidates with confidence, state topics, command topics, and the
+evidence behind each result.
+
+Discovery is read-only. Every candidate requires confirmation before it becomes
+a provider binding, and a command-only topic is never reported as measured
+hardware state. Topics that cannot be classified remain in `unclassified` for
+interface inspection or a future reusable provider.
 
 ## Servo debugging
 
 Open **Servo Debug Monitor**, select a registered robot on the Robot Monitor
 node, and connect any number of `RobotServo` nodes to its `robot` output. Each
 Servo node selects an ID independently while all cards share one live telemetry
-connection to the robot.
+connection to the robot. Robot Monitor combines that stream with authenticated
+device status so the active profile, calibration, hardware identity, and
+reported-versus-expected joint coverage stay visible while Robot Hardware or a
+deployment owns the bus.
 
-The position slider is a command preview. `RobotServo` produces `joint`,
-`target_position`, and a canonical `command` request, but never writes to a
-driver or bus. Connect `joint` and `target_position` to a
-`blacknode-motion` arm execution node when physical movement is intended.
-Motion arbitration, calibration limits, freshness, ownership, and explicit
-arming remain in the motion path.
+Robot Monitor also lists compatible serial robots attached directly to the
+editor computer under **Local USB**. Blacknode rediscovers the opaque target,
+matches its saved profile and calibration, and opens its bound provider for
+read-only monitoring. The selector does not accept arbitrary device paths, and
+one shared stream supplies the monitor and every connected Servo card.
+
+The Robot Monitor and direct Servo cards expose the same local profile picker:
+**Auto** uses the strongest hardware-bound match, a saved profile can be chosen
+explicitly, and **None · raw read-only** asks an installed driver provider to
+discover responding servo IDs. Raw mode shows register ticks and passive
+diagnostics under generic names such as `servo_2`; it does not infer semantic
+joint names, calibrated angles, limits, direction, or robot topology. Target
+preview, calibration, torque changes, and motion remain unavailable until a
+profile is selected. Raw discovery scans IDs 1–32 by default and labels this
+bounded range in its report.
+
+For local USB hardware, choose the robot and its calibrated profile directly on
+the Servo node. The slider begins as a preview. Press **Arm** on that Servo node
+to synchronize every joint to its current position and enable live control of
+the selected joint; press **Disarm** to release torque. The generic motion
+gateway retains arbitration, calibrated limits, fresh-feedback checks,
+hardware-warning checks, and exclusive ownership while the profile-selected
+provider handles the bus.
+
+The canonical `command` output remains available for advanced workflows that
+route Servo targets through another compatible motion controller.
 
 When a calibration is active, the card displays its safe range and marks the
-limits as calibrated. Raw position, temperature, voltage, effort, and hardware
-fault fields appear when the selected provider reports them; unavailable
-measurements are labeled **Not reported** rather than synthesized.
+limits as calibrated. Robot Monitor and every Servo card show response state,
+raw position, temperature, per-servo voltage, status flags, decoded hardware
+warnings, and bus timeout and packet-error counters when the selected provider
+reports them. A responding servo carrying a hardware warning remains visible
+as **Warning** rather than being labeled missing. Unavailable measurements are
+labeled **Not reported** rather than synthesized. Voltage warnings also prompt
+the operator to verify that the connected supply matches the robot and servo
+voltage rating before enabling torque.
 
 ## Complete robot bringup
 
@@ -140,6 +209,14 @@ Changing the generic `Robot.profile_id` invalidates the old dashboard. Press
 stops the prior managed process before starting the selected profile. A
 `PROFILE DEFAULTS` dashboard has no saved calibration for that profile and
 hardware ID.
+
+The Robot node shows live **Profile** and **Calibration** dropdowns on the
+canvas. The Profile picker lists built-in and saved profiles rather than the
+internal automatic-matching mode. Saving a profile refreshes these choices
+while the editor is running; opening either dropdown also rescans
+`robots/*/profile.json`. Selecting a different profile clears any calibration
+belonging to the previous profile so deployment cannot silently reuse the wrong
+physical identity.
 
 For one robot, use only `Robot`; the default `profile_id=auto` discovers the
 available hardware and uses `selection: 0`. Duplicate it and choose
@@ -230,6 +307,9 @@ Open **Editable SO-ARM101 Profile** as a working example. Each
 `RobotJointDefinition` names a stable joint and sets its servo ID, provisional
 range, center tick, and direction. `RobotJointList` preserves their order;
 `RobotDefinition` creates the profile; and `RobotProfileSave` makes it reusable.
+The profile-only template does not select a live `Robot`: add one and connect
+its `hardware` output only when the profile should copy USB identity from a
+currently attached device.
 
 To reuse the same mechanical definition under another identity, use
 `RobotProfileDuplicate` with `source_profile_id=so_arm101` and choose a new ID.
@@ -274,7 +354,9 @@ Open **Robot Guided Calibration** after saving a profile:
 1. Enter a clear **Calibration name**, such as `Workshop arm` or
    `Left SO-ARM101`.
 2. Load the profile and start discovery with the robot connected.
-3. Press **Release + live pose** on Manual Move and physically support the arm.
+3. Press **Release + live pose** on Robot Calibration Control and physically
+   support the robot. The node resolves the provider bound by the selected
+   profile and opens its normalized calibration session.
 4. Confirm live joint values are changing, then press **Start recording**.
 5. Slowly move every joint through the safe physical range you intend to use.
    Do not force a hard stop.
@@ -285,7 +367,8 @@ Open **Robot Guided Calibration** after saving a profile:
 8. Press **Save calibration**. The recorder applies the configured safety
    margin inside the observed extrema and saves the name with its hardware ID.
 9. Press **Hold position** only while the arm is supported and the workspace is
-   clear.
+   clear. The controller reads and seeds every current joint position before
+   enabling holding torque.
 
 Recording never commands movement. It refuses to start while torque is on, and
 it will not save until every configured joint has been observed and a home pose
@@ -294,6 +377,15 @@ report, and connected Output nodes update through the live runtime. `Robot`
 automatically applies the matching
 device calibration when given the discovery hardware output; another physical
 robot with the same profile keeps a separate calibration.
+
+The calibration dashboard lists every joint from the selected profile
+immediately. Unsampled joints remain visible as **not observed**, and the
+resolved physical hardware ID stays in the dashboard header.
+
+The workflow contains no vendor or transport node. A profile binds
+`calibration_control` to a package component, and that component supplies the
+hardware-specific session. Missing providers report an unavailable state while
+profile discovery and calibration files remain usable.
 
 While recording, the most strongly moving joint is labeled **CAPTURING**. Its
 row turns blue, and a newly extended limit flashes amber with `MIN ↓`, `MAX ↑`,

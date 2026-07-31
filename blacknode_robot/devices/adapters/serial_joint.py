@@ -14,6 +14,15 @@ TICKS_PER_REV = 4096
 ADDR_TORQUE_ENABLE = 40
 ADDR_GOAL_POSITION = 42
 ADDR_PRESENT_POSITION = 56
+ADDR_PRESENT_VOLTAGE = 62
+
+_HARDWARE_ERROR_BITS = {
+    0x01: "voltage",
+    0x02: "angle-sensor",
+    0x04: "overheat",
+    0x08: "overcurrent",
+    0x20: "overload",
+}
 
 
 @dataclass(frozen=True)
@@ -74,13 +83,35 @@ def _open(sdk: Any, config: SerialJointConfig) -> tuple[Any, Any]:
 
 
 def read_position(sdk: Any, packet: Any, port: Any, servo_id: int) -> int | None:
+    ticks, servo_error, _comm_result = read_position_status(
+        sdk,
+        packet,
+        port,
+        servo_id,
+    )
+    return ticks if servo_error == 0 else None
+
+
+def read_position_status(
+    sdk: Any,
+    packet: Any,
+    port: Any,
+    servo_id: int,
+) -> tuple[int | None, int, Any]:
+    """Return valid position data separately from servo health flags."""
     try:
         ticks, comm_result, servo_error = packet.read2ByteTxRx(port, servo_id, ADDR_PRESENT_POSITION)
     except Exception:
-        return None
-    if comm_result != sdk.COMM_SUCCESS or servo_error != 0:
-        return None
-    return int(ticks)
+        return None, 0, None
+    if comm_result != sdk.COMM_SUCCESS:
+        return None, int(servo_error or 0), comm_result
+    try:
+        ticks_value = int(ticks)
+    except (TypeError, ValueError):
+        return None, int(servo_error or 0), comm_result
+    if not 0 <= ticks_value < TICKS_PER_REV:
+        return None, int(servo_error or 0), comm_result
+    return ticks_value, int(servo_error or 0), comm_result
 
 
 def read_torque_enabled(
@@ -147,7 +178,14 @@ def probe_serial(config: SerialJointConfig) -> dict[str, Any]:
 class SerialJointMonitor:
     """Position monitor with one explicit torque-release safety operation."""
 
-    capabilities = ("joint_group", "servo_bus", "position_feedback")
+    capabilities = (
+        "joint_group",
+        "servo_bus",
+        "position_feedback",
+        "temperature_feedback",
+        "voltage_feedback",
+        "bus_health",
+    )
 
     def __init__(self, config: SerialJointConfig, device_id: str = "device") -> None:
         if not config.joints:
@@ -157,6 +195,10 @@ class SerialJointMonitor:
         self._port: Any | None = None
         self._packet: Any | None = None
         self._lock = threading.Lock()
+        self._bus_operations = 0
+        self._bus_timeouts = 0
+        self._bus_packet_errors = 0
+        self._bus_hardware_errors = 0
         self._state = JointGroupState(
             device_id=device_id,
             connected=False,
@@ -189,13 +231,53 @@ class SerialJointMonitor:
             torque_states: dict[str, bool] = {}
             torque_unavailable: list[str] = []
             errors: list[str] = []
+            temperatures_c: dict[str, float] = {}
+            voltages_v: dict[str, float] = {}
+            hardware_error_flags: dict[str, int] = {}
+            hardware_errors: dict[str, list[str]] = {}
+            servo_status: dict[str, int] = {}
             for joint in self.config.joints:
-                ticks = read_position(self._sdk, self._packet, self._port, joint.servo_id)
+                ticks, position_error, comm_result = read_position_status(
+                    self._sdk,
+                    self._packet,
+                    self._port,
+                    joint.servo_id,
+                )
+                self._record_bus_result(comm_result, position_error)
                 if ticks is None:
                     errors.append(f"no response from servo {joint.servo_id} ({joint.name})")
                     continue
                 raw_positions[joint.name] = ticks
                 positions[joint.name] = ticks_to_degrees(ticks, joint)
+                flags = int(position_error)
+                try:
+                    packed, diagnostic_result, diagnostic_error = (
+                        self._packet.read4ByteTxRx(
+                            self._port,
+                            joint.servo_id,
+                            ADDR_PRESENT_VOLTAGE,
+                        )
+                    )
+                except Exception:
+                    packed, diagnostic_result, diagnostic_error = 0, None, 0
+                self._record_bus_result(diagnostic_result, diagnostic_error)
+                if diagnostic_result == self._sdk.COMM_SUCCESS:
+                    raw_diagnostics = int(packed)
+                    voltages_v[joint.name] = float(raw_diagnostics & 0xFF) / 10.0
+                    temperatures_c[joint.name] = float(
+                        (raw_diagnostics >> 8) & 0xFF
+                    )
+                    status = int((raw_diagnostics >> 24) & 0xFF)
+                    servo_status[joint.name] = status
+                    flags |= int(diagnostic_error or 0) | status
+                hardware_error_flags[joint.name] = flags
+                if flags:
+                    decoded = [
+                        label
+                        for bit, label in _HARDWARE_ERROR_BITS.items()
+                        if flags & bit
+                    ]
+                    hardware_errors[joint.name] = decoded
                 torque_enabled = read_torque_enabled(
                     self._sdk,
                     self._packet,
@@ -211,6 +293,30 @@ class SerialJointMonitor:
 
             self._state.positions = positions
             self._state.raw_positions = raw_positions
+            self._state.temperatures_c = temperatures_c
+            self._state.voltages_v = voltages_v
+            self._state.voltage_v = min(voltages_v.values()) if voltages_v else None
+            self._state.hardware_error_flags = hardware_error_flags
+            self._state.hardware_errors = hardware_errors
+            self._state.servo_status = servo_status
+            self._state.bus = {
+                "operation_count": self._bus_operations,
+                "timeout_count": self._bus_timeouts,
+                "serial_packet_error_count": self._bus_packet_errors,
+                "serial_packet_error_rate": (
+                    self._bus_packet_errors / self._bus_operations
+                    if self._bus_operations
+                    else 0.0
+                ),
+                "hardware_error_count": self._bus_hardware_errors,
+                "hardware_error_flags": dict(hardware_error_flags),
+                "hardware_errors": {
+                    name: list(values)
+                    for name, values in hardware_errors.items()
+                },
+                "servo_status": dict(servo_status),
+                "voltages_v": dict(voltages_v),
+            }
             self._state.connected = len(positions) == len(self.config.joints)
             self._state.torque_enabled = (
                 any(torque_states.values())
@@ -238,6 +344,15 @@ class SerialJointMonitor:
             if not positions:
                 self._close_port()
             return self._state
+
+    def _record_bus_result(self, comm_result: Any, servo_error: int) -> None:
+        self._bus_operations += 1
+        if comm_result != self._sdk.COMM_SUCCESS:
+            self._bus_packet_errors += 1
+            if comm_result == getattr(self._sdk, "COMM_RX_TIMEOUT", object()):
+                self._bus_timeouts += 1
+        if servo_error:
+            self._bus_hardware_errors += 1
 
     def state(self) -> JointGroupState:
         return self._state

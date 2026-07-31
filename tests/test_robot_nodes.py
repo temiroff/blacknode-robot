@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import blacknode  # noqa: F401
 from blacknode.node import _NODE_REGISTRY
 from blacknode.workflow import validate_workflow
+from blacknode.pkg.blacknode_robot import calibration_control
 from blacknode.pkg.blacknode_robot import robot as robot_nodes
 from blacknode.pkg.blacknode_robot import profiles as profile_nodes
 
@@ -22,6 +23,7 @@ EXPECTED_NODES = [
     "Robot",
     "RobotConnectionDashboard",
     "RobotMonitor",
+    "RobotRawMonitor",
     "RobotROSInterfaceCheck",
     "RobotAttachment",
     "RobotAttachmentList",
@@ -36,6 +38,7 @@ EXPECTED_NODES = [
     "RobotProfileLoad",
     "RobotProfileList",
     "RobotProfileDuplicate",
+    "RobotCalibrationControl",
     "RobotCalibrationRecorder",
 ]
 
@@ -45,6 +48,221 @@ def test_robot_nodes_registered_with_category():
         assert name in _NODE_REGISTRY, name
         assert _NODE_REGISTRY[name]._bn_category == "Robot"
         assert _NODE_REGISTRY[name]._bn_package == "blacknode-robot"
+
+
+def _calibration_profile(package: str, component: str) -> dict:
+    return {
+        "id": "generic_test_arm",
+        "protocol": "deliberately_ignored",
+        "capability_bindings": {
+            "calibration_control": {
+                "capability": "calibration_control",
+                "provider": {
+                    "package": package,
+                    "component": component,
+                },
+            },
+        },
+    }
+
+
+def test_robot_calibration_control_resolves_provider_from_profile(monkeypatch):
+    calls = []
+
+    class Session:
+        def release(self):
+            calls.append("release")
+            return {
+                "pose": {"axis": 12.5},
+                "torque_enabled": False,
+                "errors": [],
+            }
+
+        def sample(self):
+            raise AssertionError("release must remain explicit")
+
+        def hold(self):
+            raise AssertionError("hold must not run")
+
+        def close(self):
+            calls.append("close")
+
+    def provider_node(_ctx):
+        return {}
+
+    provider_node._bn_robot_calibration_provider = {
+        "package": "test-hardware",
+        "component": "mock-bus",
+        "capability": "calibration_control",
+        "open_session": lambda _ctx: Session(),
+    }
+    monkeypatch.setitem(
+        _NODE_REGISTRY,
+        "TestRobotCalibrationProvider",
+        provider_node,
+    )
+
+    result = _NODE_REGISTRY["RobotCalibrationControl"]({
+        "action": "release",
+        "profile": _calibration_profile("test-hardware", "mock-bus"),
+        "__run_mode__": "once",
+    })
+
+    assert result["command_ok"] is True
+    assert result["pose"] == {"axis": 12.5}
+    assert result["torque_enabled"] is False
+    assert result["provider"] == {
+        "package": "test-hardware",
+        "component": "mock-bus",
+        "capability": "calibration_control",
+        "bound_via": "calibration_control",
+    }
+    assert calls == ["release", "close"]
+
+
+def test_robot_calibration_control_reports_missing_bound_provider():
+    result = _NODE_REGISTRY["RobotCalibrationControl"]({
+        "action": "check",
+        "profile": _calibration_profile("missing-package", "missing-component"),
+        "__run_mode__": "once",
+    })
+
+    assert result["available"] is False
+    assert result["command_ok"] is False
+    assert result["data_ready"] is False
+    assert "missing-package/missing-component" in result["report"]
+
+
+def test_robot_calibration_control_keeps_warnings_non_blocking(monkeypatch):
+    class Session:
+        def sample(self):
+            return {
+                "pose": {"axis": 12.5},
+                "torque_enabled": False,
+                "errors": [],
+                "warnings": ["axis hardware warning 0x01: voltage"],
+                "servos": {"axis": {"servo_id": 2, "ticks": 833}},
+                "diagnostics": {"serial_packet_error_count": 0},
+            }
+
+        def release(self):
+            return self.sample()
+
+        def hold(self):
+            raise AssertionError("hold must not run")
+
+        def close(self):
+            return None
+
+    def provider_node(_ctx):
+        return {}
+
+    provider_node._bn_robot_calibration_provider = {
+        "package": "test-hardware",
+        "component": "warning-bus",
+        "capability": "calibration_control",
+        "open_session": lambda _ctx: Session(),
+    }
+    monkeypatch.setitem(
+        _NODE_REGISTRY,
+        "TestWarningRobotCalibrationProvider",
+        provider_node,
+    )
+
+    result = _NODE_REGISTRY["RobotCalibrationControl"]({
+        "action": "check",
+        "profile": _calibration_profile("test-hardware", "warning-bus"),
+        "__run_mode__": "once",
+    })
+
+    assert result["available"] is True
+    assert result["command_ok"] is True
+    assert result["data_ready"] is True
+    assert result["torque_enabled"] is False
+    assert result["warnings"] == ["axis hardware warning 0x01: voltage"]
+    assert result["servos"]["axis"]["ticks"] == 833
+    assert "Warnings:" in result["report"]
+
+
+def test_robot_calibration_control_uses_hardware_free_mock_provider():
+    profile = _calibration_profile("blacknode-robot", "calibration")
+    profile["joints"] = [{"id": "axis"}]
+    profile["capability_bindings"]["calibration_control"]["configuration"] = {
+        "pose": {"axis": 7.5},
+        "torque_enabled": False,
+    }
+
+    result = _NODE_REGISTRY["RobotCalibrationControl"]({
+        "action": "check",
+        "profile": profile,
+        "__run_mode__": "once",
+    })
+
+    assert result["available"] is True
+    assert result["pose"] == {"axis": 7.5}
+    assert result["torque_enabled"] is False
+    assert result["provider"]["component"] == "calibration"
+
+
+def test_robot_calibration_control_live_stop_closes_provider(monkeypatch):
+    closed = []
+
+    class Session:
+        def release(self):
+            return {
+                "pose": {"axis": 0.0},
+                "torque_enabled": False,
+                "errors": [],
+            }
+
+        def sample(self):
+            return self.release()
+
+        def hold(self):
+            raise AssertionError("hold must not run")
+
+        def close(self):
+            closed.append(True)
+
+    def provider_node(_ctx):
+        return {}
+
+    provider_node._bn_robot_calibration_provider = {
+        "package": "test-hardware",
+        "component": "live-bus",
+        "capability": "calibration_control",
+        "open_session": lambda _ctx: Session(),
+    }
+    monkeypatch.setitem(
+        _NODE_REGISTRY,
+        "TestLiveRobotCalibrationProvider",
+        provider_node,
+    )
+
+    result = _NODE_REGISTRY["RobotCalibrationControl"]({
+        "run_id": "generic_live_test",
+        "action": "release",
+        "sample_hz": 1,
+        "profile": _calibration_profile("test-hardware", "live-bus"),
+        "__run_mode__": "live",
+    })
+    assert result["live"] is True
+    assert calibration_control.runtime_status()["active"] is True
+
+    stopped = calibration_control.stop_runtime_services()
+
+    assert stopped["stopped"]["managed_runs"] == 1
+    assert closed == [True]
+
+
+def test_robot_calibration_control_blocks_one_shot_hold():
+    result = _NODE_REGISTRY["RobotCalibrationControl"]({
+        "action": "hold",
+        "__run_mode__": "once",
+    })
+
+    assert result["command_ok"] is False
+    assert "Hold requires a live calibration session" in result["report"]
 
 
 def test_capability_contracts_load_on_older_blacknode_core(monkeypatch):
@@ -82,11 +300,41 @@ def test_robot_monitor_exposes_a_read_only_portable_target():
         "schema_version": 1,
         "robot_id": "robot-2",
         "robot_name": "Workshop arm",
+        "profile_id": "auto",
         "configured": True,
     }
     assert fn._bn_component == "capabilities"
     assert fn._bn_primary_inputs == []
     assert fn._bn_primary_outputs == ["robot"]
+
+
+def test_raw_monitor_resolves_a_selected_read_only_provider():
+    result = _NODE_REGISTRY["RobotRawMonitor"]({
+        "hardware": {
+            "raw_monitor_provider": {
+                "package": "blacknode-robot",
+                "component": "capabilities",
+            },
+        },
+        "provider_config": {
+            "joints": [{
+                "name": "servo_4",
+                "servo_id": 4,
+                "position": 2201.0,
+                "velocity": 0.0,
+                "raw_position": 2201,
+            }],
+        },
+    })
+
+    assert result["available"] is True
+    assert result["position_unit"] == "ticks"
+    assert result["joints"][0]["servo_id"] == 4
+    assert result["provider"] == {
+        "package": "blacknode-robot",
+        "component": "capabilities",
+        "capability": "raw_position_feedback",
+    }
 
 
 def _capability_binding(
@@ -1042,7 +1290,9 @@ def test_robot_auto_selects_only_profile_and_declares_joint_capabilities(
 
     assert result["found"] is True
     assert result["profile"]["id"] == "so_arm101"
+    assert result["hardware_id"] == "ROBOT-7"
     assert result["profile"]["capabilities"] == [
+        "calibration_control",
         "position_feedback",
         "joint_group",
     ]
@@ -1297,6 +1547,50 @@ def test_calibration_records_extrema_home_margin_and_device_file(monkeypatch, tm
     assert loaded["driver"]["joints"][0]["safe_min_deg"] == -23.0
 
 
+def test_calibration_idle_dashboard_lists_every_profile_joint():
+    profile_nodes.stop_calibration_services()
+    profile = profile_nodes.builtin_profile("so_arm101")
+
+    result = _NODE_REGISTRY["RobotCalibrationRecorder"]({
+        "action": "check",
+        "run_id": "all_joint_preview",
+        "profile": profile,
+        "hardware": {
+            "recommended": {
+                "serial": "PREVIEW-ROBOT",
+                "path": "COM4",
+            },
+        },
+    })
+
+    assert result["hardware_id"] == "PREVIEW-ROBOT"
+    svg = base64.b64decode(result["dashboard"].split(",", 1)[1]).decode("utf-8")
+    assert "PREVIEW-ROBOT" in svg
+    assert "not observed" in svg
+    for joint in profile["joints"]:
+        assert str(joint["id"]) in svg
+
+
+def test_calibration_missing_hardware_keeps_joint_preview():
+    profile_nodes.stop_calibration_services()
+    profile = profile_nodes.builtin_profile("so_arm101")
+
+    result = _NODE_REGISTRY["RobotCalibrationRecorder"]({
+        "action": "start",
+        "run_id": "missing_hardware_preview",
+        "profile": profile,
+        "hardware": {},
+        "torque_enabled": False,
+    })
+
+    assert result["active"] is False
+    assert result["profile"]["id"] == "so_arm101"
+    assert "no physical hardware identity was received" in result["report"]
+    svg = base64.b64decode(result["dashboard"].split(",", 1)[1]).decode("utf-8")
+    for joint in profile["joints"]:
+        assert str(joint["id"]) in svg
+
+
 def test_calibration_refuses_to_record_with_torque_enabled(monkeypatch, tmp_path):
     monkeypatch.setenv("BLACKNODE_ROBOTS_DIR", str(tmp_path / "robots"))
     profile_nodes.stop_calibration_services()
@@ -1352,6 +1646,32 @@ def test_calibration_pause_resume_preserves_samples_and_live_pose(monkeypatch, t
     assert resumed["state"] == "recording"
     assert resumed["samples"] == paused_samples + 1
     assert resumed["pose"] == {"shoulder_pan": 9.0}
+
+
+def test_calibration_pauses_on_unknown_torque_but_keeps_partial_pose():
+    profile_nodes.stop_calibration_services()
+    profile = profile_nodes.builtin_profile("so_arm101")
+    profile["joints"] = profile["joints"][:2]
+    run_id = "partial_feedback_calibration"
+    _NODE_REGISTRY["RobotCalibrationRecorder"]({
+        "action": "start",
+        "run_id": run_id,
+        "profile": profile,
+        "hardware_id": "PARTIAL-1",
+        "pose": {"shoulder_pan": 0.0, "shoulder_lift": 0.0},
+        "torque_enabled": False,
+    })
+
+    result = _NODE_REGISTRY["RobotCalibrationRecorder"]({
+        "action": "_sample",
+        "run_id": run_id,
+        "pose": {"shoulder_pan": 4.5},
+        "torque_enabled": None,
+    })
+
+    assert result["state"] == "paused"
+    assert result["pose"] == {"shoulder_pan": 4.5}
+    assert "not verified released" in result["report"]
 
 
 def test_calibration_highlights_moving_joint_and_extended_range(monkeypatch, tmp_path):

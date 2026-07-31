@@ -17,12 +17,15 @@
       "blacknode-ros2"
     ],
     "required_components": [
-      "blacknode-drivers/feetech@ros2",
+      "blacknode-drivers/feetech",
       "blacknode-robot/capabilities",
       "blacknode-ros2/core",
       "blacknode-ros2/diagnostics",
       "blacknode-ros2/services",
       "blacknode-ros2/topics"
+    ],
+    "required_adapters": [
+      "blacknode-drivers/feetech@ros2"
     ]
   },
   "node_meta": {
