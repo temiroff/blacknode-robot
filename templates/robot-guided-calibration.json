@@ -2,85 +2,73 @@
   "kind": "blacknode.workflow",
   "schema_version": 1,
   "name": "Guided Calibration",
-  "saved_at": "2026-07-15T00:00:00",
+  "saved_at": "2026-07-30T00:00:00",
   "entrypoint": {"node_id": "out", "port": "value"},
   "metadata": {
     "template": true,
-    "description": "Load a named robot, discover and start it, release torque explicitly, record hand-moved joint extrema, capture Home, and save reviewed safe limits per USB serial. Calibration never commands motion.",
+    "description": "Load a named robot, resolve its profile-bound calibration provider, release torque explicitly, stream normalized joint feedback, record hand-moved extrema, capture Home, and save reviewed safe limits per physical hardware identity. Calibration never commands motion.",
     "color": "#f59e0b",
-    "required_packages": ["blacknode-motion", "blacknode-robot", "blacknode-ros2"],
+    "required_packages": ["blacknode-robot"],
     "required_components": [
-      "blacknode-motion/arm",
       "blacknode-robot/core",
-      "blacknode-robot/calibration",
-      "blacknode-ros2/diagnostics"
+      "blacknode-robot/calibration"
     ],
-    "required_adapters": ["blacknode-motion/arm@ros2"],
-    "required_capabilities": ["position_feedback", "servo_bus"]
+    "required_capabilities": ["calibration_control", "position_feedback"]
   },
   "node_meta": {
     "robot": {
       "id": "robot", "type": "Robot", "pos": [760, 150],
       "params": {
-        "profile_id": "so_arm101", "selection": 0, "action": "start", "run_id": "calibration_robot_driver", "host": "127.0.0.1", "port": 9090,
+        "profile_id": "auto", "selection": 0, "action": "check", "run_id": "calibration_robot_driver", "host": "127.0.0.1", "port": 9090,
         "state_topic": "/joint_states", "command_topic": "/joint_commands", "config_topic": "/joint_config",
         "control_topic": "/robot_control", "units": "degrees"
       },
       "inputs": ["trigger", "driver", "hardware", "action", "run_id", "port_filter", "probe_open", "require_usb", "serial_port", "host", "port", "state_topic", "command_topic", "config_topic", "control_topic", "units"],
-      "outputs": ["found", "ready", "usb_ready", "driver_running", "profile", "hardware", "usb", "driver", "robot", "report"],
+      "outputs": ["found", "ready", "usb_ready", "driver_running", "port", "serial", "hardware_id", "profile", "hardware", "usb", "driver", "robot", "report"],
       "input_types": {"trigger": "Any", "driver": "Dict", "hardware": "Dict", "action": "Text", "run_id": "Text", "port_filter": "Text", "probe_open": "Bool", "require_usb": "Bool", "serial_port": "Text", "host": "Text", "port": "Int", "state_topic": "Text", "command_topic": "Text", "config_topic": "Text", "control_topic": "Text", "units": "Text"},
-      "output_types": {"found": "Bool", "ready": "Bool", "usb_ready": "Bool", "driver_running": "Bool", "profile": "Dict", "hardware": "Dict", "usb": "Dict", "driver": "Dict", "robot": "Dict", "report": "Text"},
+      "output_types": {"found": "Bool", "ready": "Bool", "usb_ready": "Bool", "driver_running": "Bool", "port": "Text", "serial": "Text", "hardware_id": "Text", "profile": "Dict", "hardware": "Dict", "usb": "Dict", "driver": "Dict", "robot": "Dict", "report": "Text"},
       "input_defaults": {"action": "check", "run_id": "robot_driver", "port_filter": "", "probe_open": false, "require_usb": false, "serial_port": "", "host": "127.0.0.1", "port": 9090, "state_topic": "/joint_states", "command_topic": "/joint_commands", "config_topic": "/joint_config", "control_topic": "/robot_control", "units": "degrees"}
     },
-    "status": {
-      "id": "status", "type": "ROS2Status", "pos": [1150, 150],
+    "control": {
+      "id": "control", "type": "RobotCalibrationControl", "pos": [1280, 90],
       "params": {
-        "transport": "auto", "ensure_rosbridge": true, "host": "127.0.0.1", "port": 9090,
-        "state_topic": "/joint_states", "command_topic": "/joint_commands", "config_topic": "/joint_config", "timeout": 5.0
+        "run_id": "calibration_live_pose", "action": "check", "provider_config": {}, "sample_hz": 15.0
       },
-      "inputs": ["trigger", "transport", "ensure_rosbridge", "host", "port", "state_topic", "command_topic", "config_topic", "timeout"], "outputs": ["connected", "ready", "transport", "topics", "config", "report"],
-      "input_types": {"trigger": "Any", "transport": "Text", "ensure_rosbridge": "Bool", "host": "Text", "port": "Int", "state_topic": "Text", "command_topic": "Text", "config_topic": "Text", "timeout": "Float"}, "output_types": {"connected": "Bool", "ready": "Bool", "transport": "Text", "topics": "List", "config": "Dict", "report": "Text"},
-      "input_defaults": {"transport": "auto", "ensure_rosbridge": true, "host": "127.0.0.1", "port": 9090, "state_topic": "/joint_states", "command_topic": "/joint_commands", "config_topic": "/joint_config", "timeout": 10.0}
-    },
-    "manual": {
-      "id": "manual", "type": "ROS2ManualMove", "pos": [1520, 90],
-      "params": {
-        "run_id": "calibration_live_pose", "action": "check", "transport": "auto", "host": "127.0.0.1", "port": 9090,
-        "state_topic": "/joint_states", "config_topic": "/joint_config", "control_topic": "/robot_control",
-        "units": "degrees", "timeout": 5.0
-      },
-      "inputs": ["trigger", "run_id", "action", "transport", "robot", "host", "port", "state_topic", "config_topic", "control_topic", "units", "timeout"],
-      "outputs": ["action", "live", "data_ready", "mode", "torque_enabled", "command_ok", "pose", "joints", "updated_at", "dashboard", "report"],
-      "input_types": {"trigger": "Any", "run_id": "Text", "action": "Text", "transport": "Text", "robot": "Dict", "host": "Text", "port": "Int", "state_topic": "Text", "config_topic": "Text", "control_topic": "Text", "units": "Text", "timeout": "Float"},
-      "output_types": {"action": "Text", "live": "Bool", "data_ready": "Bool", "mode": "Text", "torque_enabled": "Bool", "command_ok": "Bool", "pose": "Dict", "joints": "List", "updated_at": "Text", "dashboard": "Image", "report": "Text"},
-      "input_defaults": {"run_id": "robot_teach", "action": "check", "transport": "auto", "host": "127.0.0.1", "port": 9090, "state_topic": "/joint_states", "config_topic": "/joint_config", "control_topic": "/robot_control", "units": "degrees", "timeout": 5.0}
+      "inputs": ["trigger", "run_id", "action", "profile", "hardware", "robot", "provider_config", "sample_hz"],
+      "outputs": ["action", "available", "live", "data_ready", "mode", "torque_enabled", "command_ok", "pose", "joints", "provider", "updated_at", "report"],
+      "input_types": {"trigger": "Any", "run_id": "Text", "action": "Text", "profile": "Dict", "hardware": "Dict", "robot": "Dict", "provider_config": "Dict", "sample_hz": "Float"},
+      "output_types": {"action": "Text", "available": "Bool", "live": "Bool", "data_ready": "Bool", "mode": "Text", "torque_enabled": "Bool", "command_ok": "Bool", "pose": "Dict", "joints": "List", "provider": "Dict", "updated_at": "Text", "report": "Text"},
+      "input_defaults": {"run_id": "robot_calibration_control", "action": "check", "provider_config": {}, "sample_hz": 15.0},
+      "input_choices": {"action": ["check", "release", "hold", "stop"]}
     },
     "calibration": {
-      "id": "calibration", "type": "RobotCalibrationRecorder", "pos": [1960, 90],
+      "id": "calibration", "type": "RobotCalibrationRecorder", "pos": [1780, 90],
       "params": {
         "action": "check", "run_id": "robot_calibration", "calibration_name": "Workshop arm", "hardware_id": "", "require_released": true,
         "safety_margin_deg": 3.0
       },
       "inputs": ["action", "run_id", "calibration_name", "profile", "hardware_id", "hardware", "pose", "torque_enabled", "require_released", "safety_margin_deg"],
-      "outputs": ["live", "state", "active", "data_ready", "samples", "pose", "capturing_joint", "range_updates", "observed", "home", "calibration", "profile", "driver", "saved", "path", "dashboard", "report"],
+      "outputs": ["live", "state", "active", "data_ready", "samples", "pose", "capturing_joint", "range_updates", "observed", "home", "calibration", "profile", "driver", "hardware_id", "saved", "path", "dashboard", "report"],
       "input_types": {"action": "Text", "run_id": "Text", "calibration_name": "Text", "profile": "Dict", "hardware_id": "Text", "hardware": "Dict", "pose": "Dict", "torque_enabled": "Bool", "require_released": "Bool", "safety_margin_deg": "Float"},
-      "output_types": {"live": "Bool", "state": "Text", "active": "Bool", "data_ready": "Bool", "samples": "Int", "pose": "Dict", "capturing_joint": "Text", "range_updates": "Dict", "observed": "Dict", "home": "Dict", "calibration": "Dict", "profile": "Dict", "driver": "Dict", "saved": "Bool", "path": "Text", "dashboard": "Image", "report": "Text"},
+      "output_types": {"live": "Bool", "state": "Text", "active": "Bool", "data_ready": "Bool", "samples": "Int", "pose": "Dict", "capturing_joint": "Text", "range_updates": "Dict", "observed": "Dict", "home": "Dict", "calibration": "Dict", "profile": "Dict", "driver": "Dict", "hardware_id": "Text", "saved": "Bool", "path": "Text", "dashboard": "Image", "report": "Text"},
       "input_defaults": {"action": "check", "run_id": "robot_calibration", "calibration_name": "", "hardware_id": "", "torque_enabled": true, "require_released": true, "safety_margin_deg": 3.0},
       "input_choices": {"action": ["check", "start", "pause", "capture_home", "finish", "cancel"]}
     },
     "out": {
-      "id": "out", "type": "Output", "pos": [2400, 170], "params": {"label": "Robot calibration status"},
+      "id": "out", "type": "Output", "pos": [2260, 170], "params": {"label": "Robot calibration status"},
       "inputs": ["value"], "outputs": [], "input_types": {"value": "Any"}, "output_types": {}, "input_defaults": {}
     }
   },
   "edges": [
-    {"from": "robot", "from_port": "report", "to": "status", "to_port": "trigger"},
-    {"from": "status", "from_port": "report", "to": "manual", "to_port": "trigger"},
-    {"from": "robot", "from_port": "robot", "to": "manual", "to_port": "robot"},
+    {"from": "robot", "from_port": "report", "to": "control", "to_port": "trigger"},
+    {"from": "robot", "from_port": "profile", "to": "control", "to_port": "profile"},
+    {"from": "robot", "from_port": "hardware", "to": "control", "to_port": "hardware"},
+    {"from": "robot", "from_port": "robot", "to": "control", "to_port": "robot"},
     {"from": "robot", "from_port": "profile", "to": "calibration", "to_port": "profile"},
     {"from": "robot", "from_port": "hardware", "to": "calibration", "to_port": "hardware"},
-    {"from": "manual", "from_port": "pose", "to": "calibration", "to_port": "pose"},
-    {"from": "manual", "from_port": "torque_enabled", "to": "calibration", "to_port": "torque_enabled"},
+    {"from": "robot", "from_port": "hardware_id", "to": "calibration", "to_port": "hardware_id"},
+    {"from": "control", "from_port": "pose", "to": "calibration", "to_port": "pose"},
+    {"from": "control", "from_port": "torque_enabled", "to": "calibration", "to_port": "torque_enabled"},
     {"from": "calibration", "from_port": "report", "to": "out", "to_port": "value"}
   ]
 }

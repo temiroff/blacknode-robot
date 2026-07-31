@@ -1,0 +1,221 @@
+{
+  "kind": "blacknode.workflow",
+  "schema_version": 1,
+  "name": "Inspect a Compute Device",
+  "saved_at": "2026-07-30T00:00:00",
+  "entrypoint": {
+    "node_id": "inspect",
+    "port": "report"
+  },
+  "metadata": {
+    "template": true,
+    "description": "Select a compute device registered in Devices and inspect its saved read-only system and ROS 2 snapshot. The workflow exposes environment details, ROS graph inventory, generic capability candidates, and unclassified interfaces. It does not run SSH commands, install software, start services, publish ROS messages, or arm motion.",
+    "color": "#14b8a6",
+    "required_packages": [
+      "blacknode-robot"
+    ],
+    "required_components": [
+      "blacknode-robot/capabilities"
+    ]
+  },
+  "node_meta": {
+    "device": {
+      "id": "device",
+      "type": "ComputeDevice",
+      "params": {
+        "device_id": "",
+        "device_name": "",
+        "inspection": {}
+      },
+      "pos": [
+        40,
+        220
+      ],
+      "inputs": [
+        "device_id",
+        "device_name",
+        "inspection"
+      ],
+      "outputs": [
+        "configured",
+        "inspection_available",
+        "device",
+        "inspection",
+        "report"
+      ],
+      "input_types": {
+        "device_id": "Text",
+        "device_name": "Text",
+        "inspection": "Dict"
+      },
+      "output_types": {
+        "configured": "Bool",
+        "inspection_available": "Bool",
+        "device": "Dict",
+        "inspection": "Dict",
+        "report": "Text"
+      },
+      "input_defaults": {
+        "device_id": "",
+        "device_name": "",
+        "inspection": {}
+      }
+    },
+    "inspect": {
+      "id": "inspect",
+      "type": "DeviceInspect",
+      "params": {},
+      "pos": [
+        560,
+        220
+      ],
+      "inputs": [
+        "device",
+        "inspection"
+      ],
+      "outputs": [
+        "available",
+        "read_only",
+        "environment",
+        "ros2_graph",
+        "capabilities",
+        "unclassified",
+        "inventory",
+        "report"
+      ],
+      "input_types": {
+        "device": "Dict",
+        "inspection": "Dict"
+      },
+      "output_types": {
+        "available": "Bool",
+        "read_only": "Bool",
+        "environment": "Dict",
+        "ros2_graph": "Dict",
+        "capabilities": "List",
+        "unclassified": "List",
+        "inventory": "Dict",
+        "report": "Text"
+      },
+      "input_defaults": {}
+    },
+    "report_out": {
+      "id": "report_out",
+      "type": "Output",
+      "params": {
+        "label": "Inspection status"
+      },
+      "pos": [
+        1040,
+        40
+      ],
+      "inputs": [
+        "value"
+      ],
+      "outputs": [],
+      "input_types": {
+        "value": "Any"
+      },
+      "output_types": {},
+      "input_defaults": {}
+    },
+    "environment_out": {
+      "id": "environment_out",
+      "type": "Output",
+      "params": {
+        "label": "System environment"
+      },
+      "pos": [
+        1040,
+        220
+      ],
+      "inputs": [
+        "value"
+      ],
+      "outputs": [],
+      "input_types": {
+        "value": "Any"
+      },
+      "output_types": {},
+      "input_defaults": {}
+    },
+    "capabilities_out": {
+      "id": "capabilities_out",
+      "type": "Output",
+      "params": {
+        "label": "Capability candidates"
+      },
+      "pos": [
+        1040,
+        400
+      ],
+      "inputs": [
+        "value"
+      ],
+      "outputs": [],
+      "input_types": {
+        "value": "Any"
+      },
+      "output_types": {},
+      "input_defaults": {}
+    },
+    "inventory_out": {
+      "id": "inventory_out",
+      "type": "Output",
+      "params": {
+        "label": "ROS 2 inventory"
+      },
+      "pos": [
+        1040,
+        580
+      ],
+      "inputs": [
+        "value"
+      ],
+      "outputs": [],
+      "input_types": {
+        "value": "Any"
+      },
+      "output_types": {},
+      "input_defaults": {}
+    }
+  },
+  "edges": [
+    {
+      "from": "device",
+      "from_port": "device",
+      "to": "inspect",
+      "to_port": "device"
+    },
+    {
+      "from": "device",
+      "from_port": "inspection",
+      "to": "inspect",
+      "to_port": "inspection"
+    },
+    {
+      "from": "inspect",
+      "from_port": "report",
+      "to": "report_out",
+      "to_port": "value"
+    },
+    {
+      "from": "inspect",
+      "from_port": "environment",
+      "to": "environment_out",
+      "to_port": "value"
+    },
+    {
+      "from": "inspect",
+      "from_port": "capabilities",
+      "to": "capabilities_out",
+      "to_port": "value"
+    },
+    {
+      "from": "inspect",
+      "from_port": "inventory",
+      "to": "inventory_out",
+      "to_port": "value"
+    }
+  ]
+}

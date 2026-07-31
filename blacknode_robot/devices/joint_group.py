@@ -29,6 +29,13 @@ class JointGroupState:
     positions: dict[str, float] = field(default_factory=dict)
     raw_positions: dict[str, int] = field(default_factory=dict)
     limits: dict[str, dict[str, float]] = field(default_factory=dict)
+    temperatures_c: dict[str, float] = field(default_factory=dict)
+    voltages_v: dict[str, float] = field(default_factory=dict)
+    voltage_v: float | None = None
+    hardware_error_flags: dict[str, int] = field(default_factory=dict)
+    hardware_errors: dict[str, list[str]] = field(default_factory=dict)
+    servo_status: dict[str, int] = field(default_factory=dict)
+    bus: dict[str, Any] = field(default_factory=dict)
     calibrated: bool = False
     error: str = ""
     updated_at: float = field(default_factory=time.time)
@@ -44,6 +51,16 @@ class JointGroupState:
             "positions": dict(self.positions),
             "raw_positions": dict(self.raw_positions),
             "limits": {name: dict(values) for name, values in self.limits.items()},
+            "temperatures_c": dict(self.temperatures_c),
+            "voltages_v": dict(self.voltages_v),
+            "voltage_v": self.voltage_v,
+            "hardware_error_flags": dict(self.hardware_error_flags),
+            "hardware_errors": {
+                name: list(values)
+                for name, values in self.hardware_errors.items()
+            },
+            "servo_status": dict(self.servo_status),
+            "bus": dict(self.bus),
             "calibrated": self.calibrated,
             "error": self.error,
             "updated_at": self.updated_at,

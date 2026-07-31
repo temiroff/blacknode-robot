@@ -423,6 +423,59 @@ def test_serial_monitor_reads_physical_torque_and_warns_when_servos_differ(monke
     assert "servo_2" in state.error
 
 
+def test_serial_monitor_keeps_valid_position_with_hardware_warning(monkeypatch):
+    class FakeSdk:
+        COMM_SUCCESS = 0
+        COMM_RX_TIMEOUT = -6
+
+    class FakePacket:
+        def read2ByteTxRx(self, _port, _servo_id, _address):
+            return 833, 0, 1
+
+        def read4ByteTxRx(self, _port, _servo_id, _address):
+            packed = 119 | (32 << 8) | (1 << 24)
+            return packed, 0, 1
+
+        def read1ByteTxRx(self, _port, _servo_id, _address):
+            return 0, 0, 1
+
+    class FakePort:
+        def closePort(self):
+            return None
+
+    from blacknode_robot.devices.adapters import serial_joint
+
+    monkeypatch.setattr(serial_joint, "load_sdk", lambda: FakeSdk())
+    monkeypatch.setattr(
+        serial_joint,
+        "_open",
+        lambda _sdk, _config: (FakePort(), FakePacket()),
+    )
+    monitor = SerialJointMonitor(
+        SerialJointConfig(
+            port="/dev/serial/by-id/test-arm",
+            joints=(SerialJointSpec("servo_2", 2),),
+        ),
+        device_id="test-arm",
+    )
+
+    state = monitor.refresh()
+    payload = state.as_dict()
+
+    assert state.connected is True
+    assert state.raw_positions == {"servo_2": 833}
+    assert state.positions["servo_2"] == pytest.approx(
+        (833 - 2048) * 360.0 / 4096
+    )
+    assert payload["temperatures_c"] == {"servo_2": 32.0}
+    assert payload["voltages_v"] == {"servo_2": 11.9}
+    assert payload["hardware_error_flags"] == {"servo_2": 1}
+    assert payload["hardware_errors"] == {"servo_2": ["voltage"]}
+    assert payload["servo_status"] == {"servo_2": 1}
+    assert payload["bus"]["timeout_count"] == 0
+    assert payload["bus"]["serial_packet_error_count"] == 0
+
+
 def test_serial_monitor_explains_when_physical_torque_cannot_be_read(monkeypatch):
     class FakeSdk:
         COMM_SUCCESS = 0

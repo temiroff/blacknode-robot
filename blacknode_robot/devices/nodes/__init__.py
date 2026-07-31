@@ -182,10 +182,51 @@ def _servo_payload(
     temperature = temperatures.get(joint_name)
     if temperature is None:
         temperature = temperatures.get(f"servo_{servo_id}")
-    faults = [
-        dict(item) for item in (payload.get("faults") or [])
-        if isinstance(item, dict)
+    bus = payload.get("bus") if isinstance(payload.get("bus"), dict) else {}
+    diagnostic_names = [
+        joint_name,
+        str(selected.get("semantic_name") or ""),
+        profile_name,
+        f"servo_{servo_id}",
     ]
+
+    def diagnostic_value(field: str) -> TypingAny:
+        values = bus.get(field) if isinstance(bus.get(field), dict) else {}
+        for name in diagnostic_names:
+            if name and name in values:
+                return values[name]
+        return None
+
+    voltage = selected.get("voltage_v")
+    if voltage is None:
+        voltage = diagnostic_value("voltages_v")
+    if voltage is None:
+        voltage = payload.get("voltage_v")
+    if temperature is None:
+        temperature = selected.get("temperature_c")
+    hardware_error_flags = selected.get("hardware_error_flags")
+    if hardware_error_flags is None:
+        hardware_error_flags = diagnostic_value("hardware_error_flags")
+    hardware_errors = selected.get("hardware_errors")
+    if not isinstance(hardware_errors, list):
+        hardware_errors = diagnostic_value("hardware_errors")
+    hardware_errors = (
+        [str(value) for value in hardware_errors]
+        if isinstance(hardware_errors, list)
+        else []
+    )
+    servo_status = selected.get("servo_status")
+    if servo_status is None:
+        servo_status = diagnostic_value("servo_status")
+    faults = []
+    for item in payload.get("faults") or []:
+        if not isinstance(item, dict):
+            continue
+        details = item.get("details") if isinstance(item.get("details"), dict) else {}
+        fault_joint = str(details.get("joint") or "")
+        if fault_joint and fault_joint not in diagnostic_names:
+            continue
+        faults.append(dict(item))
     calibration = (
         payload.get("calibration")
         if isinstance(payload.get("calibration"), dict)
@@ -209,7 +250,32 @@ def _servo_payload(
         "lower_limit": lower,
         "upper_limit": upper,
         "temperature_c": temperature,
-        "voltage_v": payload.get("voltage_v"),
+        "voltage_v": voltage,
+        "communication_ok": bool(
+            selected
+            and selected.get("communication_ok", True) is not False
+        ),
+        "hardware_error_flags": int(hardware_error_flags or 0),
+        "hardware_errors": hardware_errors,
+        "servo_status": (
+            int(servo_status)
+            if isinstance(servo_status, int) and not isinstance(servo_status, bool)
+            else None
+        ),
+        "diagnostics": {
+            key: bus.get(key)
+            for key in (
+                "operation_count",
+                "timeout_count",
+                "serial_packet_error_count",
+                "serial_packet_error_rate",
+                "exception_count",
+                "hardware_error_count",
+                "last_full_feedback_time",
+                "last_diagnostic_time",
+            )
+            if bus.get(key) is not None
+        },
         "faults": faults,
         "connected": bool(payload.get("connected")),
         "armed": bool(payload.get("armed")),
@@ -229,14 +295,16 @@ def _servo_payload(
     category=_CATEGORY,
     description=(
         "Inspect one servo from a Robot monitor target. Connect several Servo "
-        "nodes to one Robot for live debugging. Its slider creates a canonical "
-        "command request; connect joint and target_position to a motion node to execute it."
+        "nodes to one Robot for live debugging. Its on-node Arm control routes "
+        "slider targets through the profile-selected joint-motion provider."
     ),
     primary_inputs=["robot", "state"],
     primary_outputs=["servo", "joint", "target_position", "command"],
     inputs={
         "robot": Dict(default={}),
         "state": Dict(default={}),
+        "robot_id": Text(default=""),
+        "profile_id": Text(default="auto"),
         "servo_id": Int(default=1),
         "joint_name": Text(default=""),
         "target_position": Float(default=0.0),
@@ -255,6 +323,9 @@ def _servo_payload(
         "calibrated": Bool,
         "temperature_c": Float,
         "voltage_v": Float,
+        "hardware_error_flags": Int,
+        "hardware_errors": List,
+        "diagnostics": Dict,
         "faults": List,
         "target_position": Float,
         "command": Dict,
@@ -318,7 +389,21 @@ def robot_servo(ctx: dict) -> dict:
         if servo["calibrated"]
         else "\ncalibration: not active"
     )
-    report += "\npreview only: connect this node to blacknode-motion to execute"
+    if servo["hardware_error_flags"]:
+        decoded = ", ".join(servo["hardware_errors"]) or "vendor warning"
+        report += (
+            f"\nhardware warning: 0x{servo['hardware_error_flags']:02x} "
+            f"({decoded}); position telemetry remains available"
+        )
+    diagnostics = servo["diagnostics"]
+    if diagnostics:
+        report += (
+            "\nbus: "
+            f"timeouts={int(diagnostics.get('timeout_count') or 0)}, "
+            "packet_errors="
+            f"{int(diagnostics.get('serial_packet_error_count') or 0)}"
+        )
+    report += "\npreview by default: use the Servo node Arm control for local motion"
     return {
         "servo": servo,
         "available": bool(servo["available"]),
@@ -335,6 +420,9 @@ def robot_servo(ctx: dict) -> dict:
         "calibrated": bool(servo["calibrated"]),
         "temperature_c": float(servo.get("temperature_c") or 0.0),
         "voltage_v": float(servo.get("voltage_v") or 0.0),
+        "hardware_error_flags": int(servo["hardware_error_flags"]),
+        "hardware_errors": list(servo["hardware_errors"]),
+        "diagnostics": dict(servo["diagnostics"]),
         "faults": list(servo["faults"]),
         "target_position": target,
         "command": command,

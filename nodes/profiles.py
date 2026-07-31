@@ -420,6 +420,19 @@ def _profile_with_default_capabilities(
     state_topic = str(driver.get("state_topic") or "/joint_states")
     command_topic = str(driver.get("command_topic") or "/joint_commands")
     bindings = {
+        "calibration_control": {
+            "kind": "blacknode.robot-capability-binding",
+            "schema_version": 1,
+            "capability": "calibration_control",
+            "label": "Calibration control",
+            "provider": {
+                "package": "blacknode-drivers",
+                "component": protocol,
+            },
+            "configuration": {},
+            "hardware_identity": {},
+            "required": True,
+        },
         "position_feedback": {
             "kind": "blacknode.robot-capability-binding",
             "schema_version": 1,
@@ -774,7 +787,8 @@ def robot_profile_save(ctx: dict) -> dict:
     },
     outputs={
         "found": Bool, "ready": Bool, "usb_ready": Bool, "driver_running": Bool,
-        "port": Text, "serial": Text, "profile": Dict, "driver": Dict, "robot": Dict,
+        "port": Text, "serial": Text, "hardware_id": Text,
+        "profile": Dict, "driver": Dict, "robot": Dict,
         "hardware": Dict, "usb": Dict, "devices": List, "recommended": Dict,
         "permissions": Dict, "calibration": Dict, "path": Text, "report": Text,
     },
@@ -957,6 +971,7 @@ def robot_profile_load(ctx: dict) -> dict:
         "driver_running": bool(connection.get("driver_running")),
         "port": str(recommended.get("path") or ""),
         "serial": str(recommended.get("serial") or ""),
+        "hardware_id": hardware_id,
         "profile": effective,
         "driver": driver,
         "robot": dict(connection.get("robot") or {}),
@@ -1082,6 +1097,34 @@ def _sample_session(session: dict[str, Any], pose: dict[str, Any]) -> int:
     return accepted
 
 
+def _calibration_context_session(ctx: dict[str, Any]) -> dict[str, Any] | None:
+    profile = (
+        copy.deepcopy(ctx.get("profile"))
+        if isinstance(ctx.get("profile"), dict) and ctx.get("profile")
+        else {}
+    )
+    if not profile:
+        return None
+    allowed = {str(joint.get("id")) for joint in _joint_list(profile)}
+    pose = {
+        str(name): float(value)
+        for name, value in dict(ctx.get("pose") or {}).items()
+        if name in allowed and isinstance(value, (int, float))
+    }
+    return {
+        "profile": profile,
+        "hardware_id": _hardware_id(ctx),
+        "last_pose": pose,
+        "observed": {},
+        "home": {},
+        "range_updates": {},
+        "samples": 0,
+        "active": False,
+        "paused": False,
+        "monitoring": False,
+    }
+
+
 def _calibration_dashboard(session: dict[str, Any] | None, report: str) -> str:
     active = bool(session and session.get("active"))
     paused = bool(session and session.get("paused"))
@@ -1098,51 +1141,71 @@ def _calibration_dashboard(session: dict[str, Any] | None, report: str) -> str:
         and capturing_joint
         and now - float(session.get("capturing_at") or 0.0) <= 1.25
     ) if session else False
-    for index, name in enumerate(sorted(observed)[:8]):
-        bounds = observed[name]
+    profile = dict(session.get("profile") or {}) if session else {}
+    profile_joints = [
+        str(joint.get("id"))
+        for joint in _joint_list(profile)
+        if joint.get("id")
+    ]
+    joint_names = list(dict.fromkeys([*profile_joints, *sorted(observed)]))
+    for index, name in enumerate(joint_names):
+        bounds = observed.get(name)
         y = 178 + index * 44
         update = range_updates.get(name) if isinstance(range_updates.get(name), dict) else {}
         update_recent = bool(update and now - float(update.get("at") or 0.0) <= 1.5)
         moving = capturing_recent and name == capturing_joint
         row_fill = "#78350f" if update_recent else "#172554" if moving else "transparent"
         current_fill = "#60a5fa" if moving else "#f8fafc"
-        range_fill = "#fbbf24" if update_recent else "#93a4b8"
+        range_fill = "#fbbf24" if update_recent else "#93a4b8" if bounds else "#64748b"
         update_kind = str(update.get("kind") or "").upper()
         update_badge = "RANGE" if update_kind == "BOTH" else f"{update_kind} {'↓' if update_kind == 'MIN' else '↑'}" if update_kind else ""
         row_prefix = f'<rect x="28" y="{y - 25}" width="624" height="34" rx="7" fill="{row_fill}" opacity="0.72"/>'
+        current_text = (
+            f"{float(current[name]):.2f}"
+            if isinstance(current.get(name), (int, float))
+            else "-"
+        )
+        range_text = (
+            f"{float(bounds['min_deg']):.2f} .. {float(bounds['max_deg']):.2f}"
+            if bounds
+            else "not observed"
+        )
+        home_text = (
+            f"{float(home[name]):.2f}"
+            if isinstance(home.get(name), (int, float))
+            else "-"
+        )
+        home_fill = accent if name in home else "#64748b"
         rows.append(
             row_prefix
             + f'<text x="46" y="{y}" fill="#f8fafc" font-family="monospace" font-size="15">{html.escape(name)}</text>'
-            f'<text x="270" y="{y}" text-anchor="end" fill="{current_fill}" font-family="monospace" font-size="15">{float(current.get(name, 0.0)):.2f}</text>'
-            f'<text x="500" y="{y}" text-anchor="end" fill="{range_fill}" font-family="monospace" font-size="15">{float(bounds["min_deg"]):.2f} .. {float(bounds["max_deg"]):.2f}</text>'
+            f'<text x="270" y="{y}" text-anchor="end" fill="{current_fill}" font-family="monospace" font-size="15">{current_text}</text>'
+            f'<text x="500" y="{y}" text-anchor="end" fill="{range_fill}" font-family="monospace" font-size="15">{range_text}</text>'
             f'<text x="510" y="{y}" fill="{range_fill}" font-family="Arial" font-size="10" font-weight="800">{update_badge if update_recent else ""}</text>'
-            f'<text x="640" y="{y}" text-anchor="end" fill="{accent}" font-family="monospace" font-size="15">{float(home[name]):.2f}</text>'
-            if name in home else
-            row_prefix
-            + f'<text x="46" y="{y}" fill="#f8fafc" font-family="monospace" font-size="15">{html.escape(name)}</text>'
-            f'<text x="270" y="{y}" text-anchor="end" fill="{current_fill}" font-family="monospace" font-size="15">{float(current.get(name, 0.0)):.2f}</text>'
-            f'<text x="500" y="{y}" text-anchor="end" fill="{range_fill}" font-family="monospace" font-size="15">{float(bounds["min_deg"]):.2f} .. {float(bounds["max_deg"]):.2f}</text>'
-            f'<text x="510" y="{y}" fill="{range_fill}" font-family="Arial" font-size="10" font-weight="800">{update_badge if update_recent else ""}</text>'
-            f'<text x="640" y="{y}" text-anchor="end" fill="#64748b" font-family="monospace" font-size="15">-</text>'
+            f'<text x="640" y="{y}" text-anchor="end" fill="{home_fill}" font-family="monospace" font-size="15">{home_text}</text>'
         )
     if not rows:
-        rows.append('<text x="340" y="250" text-anchor="middle" fill="#93a4b8" font-family="Arial" font-size="17">Start recording, then move each released joint slowly.</text>')
+        rows.append('<text x="340" y="220" text-anchor="middle" fill="#93a4b8" font-family="Arial" font-size="17">Connect a robot profile to list its joints.</text>')
     state = "RECORDING" if active else "PAUSED" if paused else "IDLE / SAVED"
     samples = int(session.get("samples") or 0) if session else 0
     safe_report = html.escape(report[:100])
     capture_label = html.escape(f"CAPTURING {capturing_joint}" if capturing_recent else "")
-    svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="680" height="590" viewBox="0 0 680 590">
-<rect width="680" height="590" rx="22" fill="#0b1020"/>
+    footer_y = max(300, 178 + max(0, len(joint_names) - 1) * 44 + 70)
+    height = footer_y + 38
+    hardware_id = html.escape(str(session.get("hardware_id") or "not connected")) if session else "not connected"
+    svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="680" height="{height}" viewBox="0 0 680 {height}">
+<rect width="680" height="{height}" rx="22" fill="#0b1020"/>
 <rect x="22" y="22" width="636" height="100" rx="16" fill="#172033" stroke="{accent}" stroke-width="2"/>
 <text x="44" y="58" fill="#f8fafc" font-family="Arial" font-size="23" font-weight="800">ROBOT CALIBRATION</text>
 <text x="44" y="91" fill="{accent}" font-family="Arial" font-size="16" font-weight="800">{state} · {samples} SAMPLES</text>
+<text x="636" y="58" text-anchor="end" fill="#93a4b8" font-family="monospace" font-size="11">{hardware_id}</text>
 <text x="636" y="91" text-anchor="end" fill="#60a5fa" font-family="Arial" font-size="13" font-weight="800">{capture_label}</text>
 <text x="46" y="146" fill="#93a4b8" font-family="Arial" font-size="12">JOINT</text>
 <text x="270" y="146" text-anchor="end" fill="#93a4b8" font-family="Arial" font-size="12">CURRENT</text>
 <text x="500" y="146" text-anchor="end" fill="#93a4b8" font-family="Arial" font-size="12">OBSERVED RANGE</text>
 <text x="640" y="146" text-anchor="end" fill="#93a4b8" font-family="Arial" font-size="12">HOME</text>
 {''.join(rows)}
-<text x="40" y="552" fill="#93a4b8" font-family="Arial" font-size="13">{safe_report}</text>
+<text x="40" y="{footer_y}" fill="#93a4b8" font-family="Arial" font-size="13">{safe_report}</text>
 </svg>'''
     return "data:image/svg+xml;base64," + base64.b64encode(svg.encode("utf-8")).decode("ascii")
 
@@ -1172,6 +1235,7 @@ def _session_outputs(session: dict[str, Any] | None, report: str, *, saved: bool
         "calibration": calibration,
         "profile": profile,
         "driver": _driver_from_profile(profile, hardware_id) if profile else {},
+        "hardware_id": hardware_id,
         "saved": saved or bool(calibration),
         "path": saved_path,
         "dashboard": _calibration_dashboard(session, report),
@@ -1210,6 +1274,7 @@ def _session_outputs(session: dict[str, Any] | None, report: str, *, saved: bool
         "calibration": Dict,
         "profile": Dict,
         "driver": Dict,
+        "hardware_id": Text,
         "saved": Bool,
         "path": Text,
         "dashboard": Image,
@@ -1221,7 +1286,8 @@ def robot_calibration_recorder(ctx: dict) -> dict:
     run_id = str(ctx.get("run_id") or "robot_calibration").strip() or "robot_calibration"
     requested_name = " ".join(str(ctx.get("calibration_name") or "").split())[:96]
     pose = dict(ctx.get("pose") or {})
-    torque_enabled = bool(ctx.get("torque_enabled", True))
+    raw_torque = ctx.get("torque_enabled", True)
+    torque_enabled = raw_torque if isinstance(raw_torque, bool) else None
     require_released = bool(ctx.get("require_released", True))
     with _calibration_lock:
         session = _calibration_sessions.get(run_id)
@@ -1229,14 +1295,22 @@ def robot_calibration_recorder(ctx: dict) -> dict:
             session["calibration_name"] = requested_name
         if action == "start":
             profile = copy.deepcopy(ctx.get("profile") if isinstance(ctx.get("profile"), dict) else {})
+            preview = _calibration_context_session(ctx)
             errors = _validate_profile(profile)
             hardware_id = _hardware_id(ctx)
             if errors:
-                return _session_outputs(None, "calibration blocked: invalid robot profile: " + "; ".join(errors))
+                return _session_outputs(preview, "calibration blocked: invalid robot profile: " + "; ".join(errors))
             if not hardware_id:
-                return _session_outputs(None, "calibration blocked: connect hardware or set hardware_id so results belong to one physical robot")
-            if require_released and torque_enabled:
-                return _session_outputs(None, "calibration blocked: torque is on. Support the arm and use Release + live pose first.")
+                return _session_outputs(
+                    preview,
+                    (
+                        "calibration blocked: no physical hardware identity was "
+                        "received. Re-run Robot discovery and select a connected "
+                        "device; calibration cannot use a generic shared ID"
+                    ),
+                )
+            if require_released and torque_enabled is not False:
+                return _session_outputs(preview, "calibration blocked: torque is on. Support the arm and use Release + live pose first.")
             if (
                 session is not None
                 and session.get("paused")
@@ -1271,12 +1345,24 @@ def robot_calibration_recorder(ctx: dict) -> dict:
             _sample_session(session, pose)
             return _session_outputs(session, "RECORDING: torque is off. Support the arm and slowly sweep each joint through the intended usable range.")
         if session is None:
-            return _session_outputs(None, "calibration is idle. Release torque, then press Start recording.")
+            return _session_outputs(
+                _calibration_context_session(ctx),
+                "calibration is idle. Release torque, then press Start recording.",
+            )
         if action in {"_sample", "sample"}:
-            if require_released and torque_enabled:
+            if require_released and torque_enabled is not False:
                 session["active"] = False
                 session["paused"] = True
-                return _session_outputs(session, "calibration paused: torque became enabled; release it before recording more samples")
+                allowed = {str(joint.get("id")) for joint in _joint_list(session["profile"])}
+                current = {
+                    str(name): float(value)
+                    for name, value in pose.items()
+                    if name in allowed and isinstance(value, (int, float))
+                }
+                if current:
+                    session["last_pose"] = current
+                    session["updated_at"] = time.time()
+                return _session_outputs(session, "calibration paused: torque is not verified released; restore complete feedback before recording more samples")
             if session.get("active"):
                 _sample_session(session, pose)
                 return _session_outputs(session, "RECORDING: live ranges are updating; capture Home when the robot is in its neutral pose.")
@@ -1293,8 +1379,8 @@ def robot_calibration_recorder(ctx: dict) -> dict:
             session["paused"] = True
             return _session_outputs(session, "PAUSED: recording stopped without discarding samples. Press Resume recording or save when ready.")
         if action == "capture_home":
-            if require_released and torque_enabled:
-                return _session_outputs(session, "home not captured: torque is on")
+            if require_released and torque_enabled is not False:
+                return _session_outputs(session, "home not captured: torque is not verified released")
             _sample_session(session, pose)
             allowed = {str(joint.get("id")) for joint in _joint_list(session["profile"])}
             session["home"] = {name: float(value) for name, value in pose.items() if name in allowed and isinstance(value, (int, float))}

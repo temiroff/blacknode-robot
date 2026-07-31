@@ -34,7 +34,22 @@ def test_robot_servo_projects_live_feedback_limits_and_diagnostics():
                 "calibrated": True,
                 "voltage_v": 12.2,
                 "temperatures_c": {"servo_2": 41.5},
-                "faults": [],
+                "faults": [{
+                    "code": "feetech-hardware-shoulder_lift",
+                    "message": "voltage warning",
+                    "active": True,
+                    "details": {"joint": "servo_2"},
+                }],
+                "bus": {
+                    "operation_count": 20,
+                    "timeout_count": 0,
+                    "serial_packet_error_count": 0,
+                    "hardware_error_count": 2,
+                    "hardware_error_flags": {"servo_2": 1},
+                    "hardware_errors": {"servo_2": ["voltage"]},
+                    "servo_status": {"servo_2": 1},
+                    "voltages_v": {"servo_2": 11.9},
+                },
                 "joints": [{
                     "name": "servo_2",
                     "semantic_name": "shoulder_lift",
@@ -65,11 +80,17 @@ def test_robot_servo_projects_live_feedback_limits_and_diagnostics():
     }
     assert result["calibrated"] is True
     assert result["temperature_c"] == 41.5
-    assert result["voltage_v"] == 12.2
+    assert result["voltage_v"] == 11.9
+    assert result["hardware_error_flags"] == 1
+    assert result["hardware_errors"] == ["voltage"]
+    assert result["diagnostics"]["operation_count"] == 20
+    assert result["diagnostics"]["timeout_count"] == 0
+    assert len(result["faults"]) == 1
     assert result["target_position"] == 80.0
     assert math.isclose(result["command"]["position_rad"], math.radians(80.0))
     assert result["command"]["requires_motion_authorization"] is True
     assert "preview only" in result["report"]
+    assert "position telemetry remains available" in result["report"]
 
 
 def test_robot_servo_can_follow_feedback_and_report_unavailable_ids():
