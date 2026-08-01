@@ -1,4 +1,4 @@
-"""Portable compute-device targets and read-only inspection snapshots."""
+"""Portable compute-device targets and credential-free live state."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ _PRIVATE_KEYS = {
 
 
 def _public_value(value: TypingAny) -> TypingAny:
-    """Copy a device snapshot while excluding credential-shaped fields."""
+    """Copy device state while excluding credential-shaped fields."""
     if isinstance(value, dict):
         return {
             str(key): _public_value(item)
@@ -38,8 +38,8 @@ def _public_value(value: TypingAny) -> TypingAny:
     component="capabilities",
     category="Robot",
     description=(
-        "Select a registered compute device by stable identity and expose its "
-        "sanitized read-only inspection snapshot."
+        "Select a registered compute device by stable identity and expose "
+        "current credential-free state supplied by its paired Runtime."
     ),
     inputs={
         "device_id": Text(default=""),
@@ -64,6 +64,7 @@ def compute_device(ctx: dict) -> dict:
     )
     configured = bool(device_id)
     inspection_available = bool(inspection.get("ok"))
+    live = bool(inspection_available and inspection.get("live"))
     device = {
         "kind": "blacknode.compute-device-target",
         "schema_version": 1,
@@ -71,18 +72,21 @@ def compute_device(ctx: dict) -> dict:
         "device_name": device_name,
         "configured": configured,
         "inspection_available": inspection_available,
+        "live": live,
         "read_only": True,
     }
     if not configured:
         report = "Choose a compute device in the node."
-    elif inspection_available:
+    elif live:
+        checked_at = str(inspection.get("checked_at") or "").strip()
         report = (
-            f"{device_name or device_id}: read-only inspection snapshot available."
+            f"{device_name or device_id}: paired Runtime is live"
+            + (f"; ROS state checked {checked_at}." if checked_at else ".")
         )
     else:
         report = (
-            f"{device_name or device_id}: selected; run a read-only device "
-            "inspection from Devices to capture system and ROS 2 information."
+            f"{device_name or device_id}: selected, but its paired Runtime did "
+            "not return current ROS state. Start or install the Runtime from Devices."
         )
     return {
         "configured": configured,
@@ -98,7 +102,7 @@ def compute_device(ctx: dict) -> dict:
     component="capabilities",
     category="Robot",
     description=(
-        "Read a sanitized device inspection snapshot. This node never runs "
+        "Read sanitized live device state. This node never runs "
         "commands, starts services, publishes ROS messages, or arms motion."
     ),
     inputs={
@@ -153,7 +157,9 @@ def device_inspect(ctx: dict) -> dict:
         }
     )
     configured = bool(device.get("configured") or device.get("device_id"))
-    available = bool(configured and inspection.get("ok"))
+    available = bool(
+        configured and inspection.get("ok") and inspection.get("live")
+    )
     read_only = bool(
         inspection.get("read_only", True)
         and ros2_graph.get("read_only", True)
@@ -161,12 +167,12 @@ def device_inspect(ctx: dict) -> dict:
     )
     if not configured:
         report = "No compute device is connected."
-    elif not inspection.get("ok"):
-        report = "No read-only inspection snapshot is available for this device."
+    elif not inspection.get("ok") or not inspection.get("live"):
+        report = "The paired Runtime did not return current device state."
     else:
         graph_report = str(ros2_graph.get("report") or "").strip()
         report = graph_report or (
-            "Read-only device inspection loaded: "
+            "Live read-only device state loaded: "
             f"{len(inventory.get('topics') or [])} ROS 2 topics, "
             f"{len(inventory.get('nodes') or [])} nodes, and "
             f"{len(capabilities)} capability candidates."

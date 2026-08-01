@@ -9,7 +9,7 @@
   },
   "metadata": {
     "template": true,
-    "description": "Select a compute device registered in Devices and inspect its saved read-only system and ROS 2 snapshot. The workflow exposes environment details, ROS graph inventory, generic capability candidates, and unclassified interfaces. It does not run SSH commands, install software, start services, publish ROS messages, or arm motion.",
+    "description": "Select a compute device registered in Devices and read current credential-free state from its paired Runtime. The workflow exposes live ROS graph inventory, generic capability candidates, and unclassified interfaces. It does not run SSH commands, install software, start services, publish ROS messages, or arm motion.",
     "color": "#14b8a6",
     "required_packages": [
       "blacknode-robot"

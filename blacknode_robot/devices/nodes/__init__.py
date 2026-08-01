@@ -403,7 +403,7 @@ def robot_servo(ctx: dict) -> dict:
             "packet_errors="
             f"{int(diagnostics.get('serial_packet_error_count') or 0)}"
         )
-    report += "\npreview by default: use the Servo node Arm control for local motion"
+    report += "\npreview only by default: use the Servo node Arm control for local motion"
     return {
         "servo": servo,
         "available": bool(servo["available"]),
