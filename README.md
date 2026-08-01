@@ -73,8 +73,8 @@ and verification commands.
 
 | Node | What it does |
 |---|---|
-| `ComputeDevice` | Selects a registered computer by stable ID and exposes its credential-free read-only inspection snapshot |
-| `DeviceInspect` | Splits a device snapshot into environment, ROS 2 graph, capability candidates, unclassified interfaces, and complete inventory |
+| `ComputeDevice` | Selects a registered computer by stable ID and exposes current credential-free state from its paired Runtime |
+| `DeviceInspect` | Splits current device state into environment, ROS 2 graph, capability candidates, unclassified interfaces, and complete inventory |
 | `RobotDriverDescriptor` | Declares a driver command template and standard topics |
 | `Robot` | Selects a robot, automatically finds its connection, applies calibration, and optionally starts its driver |
 | `RobotJointDefinition` | Defines one named joint, servo ID, range, zero, and direction |
@@ -100,20 +100,22 @@ and verification commands.
 | `RobotROSCapabilityDiscover` | Infers generic camera, depth camera, LiDAR, IMU, GPS, battery, joint-state, and mobile-base candidates from standard live ROS 2 message types without binding or commanding hardware |
 | `RobotROSInterfaceCheck` | Matches a live ROS graph to a supported robot interface profile without publishing commands |
 
-## Compute-device inspection
+## Live compute-device state
 
 Open **Inspect a Compute Device**, choose a registered computer on the
-`ComputeDevice` node, and press **Run once**. `DeviceInspect` exposes the saved
-system environment, ROS 2 graph, generic capability candidates, unclassified
-interfaces, and complete inventory through typed outputs.
+`ComputeDevice` node, and press **Run once**. The editor reads current state
+through the authenticated paired Runtime immediately before the cook.
+`DeviceInspect` exposes the live ROS 2 graph, generic capability candidates,
+unclassified interfaces, and complete inventory through typed outputs.
 
 A remote computer can be registered before Blacknode Runtime is installed.
 Use **Devices → Add device → Remote SSH**, confirm the host fingerprint, and
-press **Confirm and inspect**. The editor saves the stable device ID, public SSH
-identity, and sanitized snapshot. The password is discarded after the request.
+press **Confirm and inspect**. Install or pair the Runtime to enable live graph
+reads. The workflow saves the stable device ID and display identity. The SSH
+password is discarded after setup and is not required for routine live reads.
 The graph never stores a password, pairing token, or arbitrary shell command.
 
-This snapshot path is read-only. Continuous streams and physical control use a
+This live discovery path is read-only. Continuous streams and physical control use a
 paired Runtime or another managed provider with freshness, shutdown, limits,
 and explicit arming safeguards.
 

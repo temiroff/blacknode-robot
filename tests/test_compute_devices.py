@@ -9,6 +9,8 @@ from blacknode.workflow import validate_workflow
 def _inspection():
     return {
         "ok": True,
+        "live": True,
+        "checked_at": "2026-07-31T09:00:00+00:00",
         "password": "must-not-leak",
         "environment": {
             "os": {"name": "Ubuntu", "version": "22.04"},
@@ -56,6 +58,7 @@ def test_compute_device_emits_only_a_stable_public_handle():
         "device_name": "Workshop Jetson",
         "configured": True,
         "inspection_available": True,
+        "live": True,
         "read_only": True,
     }
     serialized = json.dumps(result)
@@ -83,7 +86,7 @@ def test_device_inspect_exposes_read_only_inventory_and_candidates():
     assert result["unclassified"] == [{"name": "/vendor/status"}]
 
 
-def test_device_inspect_degrades_cleanly_without_snapshot():
+def test_device_inspect_degrades_cleanly_without_live_runtime_state():
     result = _NODE_REGISTRY["DeviceInspect"]({
         "device": {
             "kind": "blacknode.compute-device-target",
@@ -97,7 +100,7 @@ def test_device_inspect_degrades_cleanly_without_snapshot():
     assert result["available"] is False
     assert result["environment"] == {}
     assert result["capabilities"] == []
-    assert "No read-only inspection snapshot" in result["report"]
+    assert "did not return current device state" in result["report"]
 
 
 def test_compute_device_inspection_template_validates():
