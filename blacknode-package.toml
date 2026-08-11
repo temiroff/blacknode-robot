@@ -1,6 +1,6 @@
 [package]
 name = "blacknode-robot"
-version = "0.5.2"
+version = "0.5.3"
 description = "Robot contracts, connected-device lifecycle, normalized telemetry, profiles, and driver launch."
 requires-blacknode = ">=0.3.0"
 layer = "robot"
@@ -83,8 +83,8 @@ nodes = ["blacknode_robot/devices/nodes"]
 node-types = ["HardwareCapabilities", "RobotServo"]
 
 [components.devices.dependencies]
-pip = ["pyserial>=3.5", "feetech-servo-sdk>=1.0"]
-imports = ["serial", "scservo_sdk"]
+pip = ["pyserial>=3.5", "feetech-servo-sdk>=1.0", "roslibpy>=1.5"]
+imports = ["serial", "scservo_sdk", "roslibpy"]
 
 [components.telemetry]
 description = "Normalized robot temperatures, voltage, faults, joint state, and device-status telemetry."

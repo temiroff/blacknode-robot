@@ -12,7 +12,7 @@ from blacknode_robot.telemetry.adapters.mqtt import (
 )
 from blacknode_robot.devices.auth import load_auth_token, token_fingerprint
 from blacknode_robot.devices.calibration import CalibrationStore
-from blacknode_robot.devices.device_config import load_device_config, serial_monitor_from_config
+from blacknode_robot.devices.device_config import load_device_config, provider_from_config
 from blacknode_robot.devices.service import HardwareRuntime
 from blacknode_robot.devices.service.server import serve
 from blacknode_robot.telemetry import TelemetryBus
@@ -34,7 +34,7 @@ def main() -> int:
     if args.config:
         config = load_device_config(args.config)
         config_device_id = config["device_id"]
-        provider = serial_monitor_from_config(config)
+        provider = provider_from_config(config)
         provider.connect()
     auth_token = None
     token_path = Path(args.auth_token_file) if args.auth_token_file else None
@@ -45,7 +45,7 @@ def main() -> int:
     elif args.require_auth:
         parser.error(f"pairing token not found: {token_path}")
     device_id = args.device_id or config_device_id
-    if config is not None and args.config:
+    if config is not None and args.config and config["adapter"] == "serial_joint":
         calibration_store = CalibrationStore(
             Path(args.config).parent / "active-calibration.json",
             device_id=device_id,

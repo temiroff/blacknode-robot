@@ -13,6 +13,8 @@ import json
 
 from blacknode_robot.devices import (
     DeviceState,
+    ExistingRos2Config,
+    ExistingRos2Monitor,
     FaultState,
     I2CMecanumBase,
     JointState,
@@ -34,7 +36,11 @@ from blacknode_robot.telemetry.adapters.mqtt import (
 )
 from blacknode_robot.devices.version import service_version
 from blacknode_robot.devices.calibration import CalibrationError, CalibrationStore
-from blacknode_robot.devices.device_config import load_device_config
+from blacknode_robot.devices.device_config import (
+    load_device_config,
+    provider_from_config,
+    save_device_config,
+)
 from blacknode_robot.devices.auth import (
     authorization_matches,
     load_auth_token,
@@ -51,6 +57,7 @@ from scripts.configure_devices import (
     hardware_unit_name,
     normalize_stack_instance,
 )
+from scripts import configure_devices
 
 
 def calibration_fixture() -> tuple[dict, dict]:
@@ -113,6 +120,163 @@ def test_safety_gate_blocks_stale_commands():
 def test_i2c_kinematics_can_be_checked_without_hardware():
     adapter = I2CMecanumBase()
     assert adapter._wheel_commands(MobileBaseCommand(linear_x=0.1)) == (-40, 40, -40, 40)
+
+
+def test_existing_ros2_monitor_reports_confirmed_topics_without_publishing():
+    class FakeRos:
+        is_connected = False
+
+        def __init__(self):
+            self.terminated = False
+
+        def run(self, timeout):
+            assert timeout == 5.0
+            self.is_connected = True
+
+        def get_topics(self):
+            return ["/scan", "/odom", "/cmd_vel"]
+
+        def terminate(self):
+            self.terminated = True
+            self.is_connected = False
+
+    client = FakeRos()
+    monitor = ExistingRos2Monitor(
+        ExistingRos2Config(
+            required_topics=("/odom", "/scan"),
+            capabilities=("mobile_base", "lidar", "odometry"),
+        ),
+        device_id="rosorin-01",
+        client_factory=lambda _host, _port: client,
+    )
+
+    state = monitor.connect()
+
+    assert state.connected is True
+    assert state.armed is False
+    assert state.values["read_only"] is True
+    assert state.values["vendor_stack_preserved"] is True
+    assert state.values["observed_topics"] == ["/cmd_vel", "/odom", "/scan"]
+    assert not hasattr(monitor, "command")
+    monitor.close()
+    assert client.terminated is True
+
+
+def test_existing_ros2_monitor_is_unhealthy_when_observed_topic_disappears():
+    class FakeRos:
+        is_connected = True
+
+        def get_topics(self):
+            return ["/scan"]
+
+        def terminate(self):
+            self.is_connected = False
+
+    monitor = ExistingRos2Monitor(
+        ExistingRos2Config(
+            required_topics=("/odom",),
+            capabilities=("odometry",),
+        ),
+        client_factory=lambda _host, _port: FakeRos(),
+    )
+
+    state = monitor.refresh()
+
+    assert state.connected is False
+    assert state.armed is False
+    assert state.values["missing_topics"] == ["/odom"]
+    assert "/odom" in state.error
+
+
+def test_existing_ros2_device_config_round_trips_and_builds_provider(tmp_path: Path):
+    path = tmp_path / "rosorin.json"
+    save_device_config(
+        {
+            "version": 1,
+            "device_id": "rosorin-01",
+            "name": "ROSOrin",
+            "adapter": "existing_ros2",
+            "mode": "read_only",
+            "host": "127.0.0.1",
+            "rosbridge_port": 9090,
+            "required_topics": ["/odom", "/scan", "/odom"],
+            "capabilities": ["mobile_base", "lidar", "mobile_base"],
+        },
+        path,
+    )
+
+    config = load_device_config(path)
+    provider = provider_from_config(config)
+
+    assert config["required_topics"] == ["/odom", "/scan"]
+    assert config["capabilities"] == ["mobile_base", "lidar"]
+    assert isinstance(provider, ExistingRos2Monitor)
+    assert provider.device_id == "rosorin-01"
+
+
+def test_existing_ros2_fleet_configuration_skips_serial_probe(
+    tmp_path: Path, monkeypatch
+):
+    class ConnectedMonitor:
+        def __init__(self, _config, *, device_id):
+            self.device_id = device_id
+
+        def connect(self):
+            return DeviceState(device_id=self.device_id, connected=True, armed=False)
+
+        def close(self):
+            return None
+
+    root = tmp_path / ".blacknode-hardware"
+    monkeypatch.setattr(configure_devices, "ExistingRos2Monitor", ConnectedMonitor)
+    monkeypatch.setattr(configure_devices, "discover_occupied_service_ports", lambda: set())
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "configure_devices.py",
+            "--existing-ros2",
+            "--required-topic",
+            "/odom",
+            "--required-topic",
+            "/scan",
+            "--capability",
+            "mobile_base",
+            "--capability",
+            "lidar",
+            "--name",
+            "ROSOrin",
+            "--root",
+            str(root),
+        ],
+    )
+
+    assert configure_devices.main() == 0
+
+    manifest = json.loads((root / "devices.json").read_text(encoding="utf-8"))
+    entry = manifest["devices"][0]
+    config = load_device_config(entry["config"])
+    assert entry["adapter"] == "existing_ros2"
+    assert entry["name"] == "ROSOrin"
+    assert "serial_port" not in entry
+    assert config["required_topics"] == ["/odom", "/scan"]
+
+
+def test_nonexclusive_ros_provider_is_not_leased_away_from_status():
+    class Provider:
+        exclusive_connection = False
+        capabilities = ("ros2_graph",)
+
+        def refresh(self):
+            return DeviceState(device_id="rosorin", connected=True, armed=False)
+
+    runtime = HardwareRuntime(Provider(), device_id="rosorin")
+
+    released = runtime.release()
+
+    assert released["ok"] is True
+    assert released["status"]["connected"] is True
+    assert released["status"]["leased_to_deployment"] is False
 
 
 def test_joint_command_tracks_freshness():

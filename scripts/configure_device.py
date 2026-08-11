@@ -47,9 +47,15 @@ def print_config(config: dict[str, Any], path: Path) -> None:
     print(f"Name: {config['name']}")
     print(f"Device ID: {config['device_id']}")
     print(f"Mode: {config['mode']}")
-    print(f"Port: {config['port']}")
-    print(f"Baudrate: {config['baudrate']}")
-    print(f"Servos: {', '.join(str(servo['id']) for servo in config['servos'])}")
+    print(f"Adapter: {config['adapter']}")
+    if config["adapter"] == "existing_ros2":
+        print(f"ROSBridge: {config['host']}:{config['rosbridge_port']}")
+        print(f"Observed topics: {', '.join(config['required_topics'])}")
+        print(f"Capabilities: {', '.join(config['capabilities'])}")
+    else:
+        print(f"Port: {config['port']}")
+        print(f"Baudrate: {config['baudrate']}")
+        print(f"Servos: {', '.join(str(servo['id']) for servo in config['servos'])}")
 
 
 def main() -> int:
