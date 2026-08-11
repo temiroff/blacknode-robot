@@ -8,6 +8,7 @@ from pathlib import Path
 import tempfile
 from typing import Any
 
+from .adapters.existing_ros2 import ExistingRos2Config, ExistingRos2Monitor
 from .adapters.serial_joint import (
     SerialJointConfig,
     SerialJointMonitor,
@@ -31,21 +32,53 @@ def normalize_device_name(value: Any, *, fallback: str = "") -> str:
 
 
 def validate_device_config(value: dict[str, Any]) -> dict[str, Any]:
-    """Validate and normalize a serial read-only device configuration."""
+    """Validate and normalize a read-only hardware provider configuration."""
     if value.get("version") != CONFIG_VERSION:
         raise ValueError(f"configuration version must be {CONFIG_VERSION}")
-    if value.get("adapter") != "serial_joint":
-        raise ValueError("adapter must be serial_joint")
     if value.get("mode") != "read_only":
         raise ValueError("mode must be read_only")
 
     device_id = value.get("device_id")
-    port = value.get("port")
-    baudrate = value.get("baudrate")
-    servos = value.get("servos")
     if not isinstance(device_id, str) or not device_id.strip():
         raise ValueError("device_id must be a non-empty string")
     name = normalize_device_name(value.get("name"), fallback=device_id)
+    adapter = value.get("adapter")
+    if adapter == "existing_ros2":
+        host = value.get("host")
+        port = value.get("rosbridge_port")
+        required_topics = value.get("required_topics")
+        capabilities = value.get("capabilities")
+        if not isinstance(host, str) or not host.strip():
+            raise ValueError("host must be a non-empty string")
+        if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535:
+            raise ValueError("rosbridge_port must be a whole number from 1 to 65535")
+        if not isinstance(required_topics, list) or not required_topics:
+            raise ValueError("required_topics must contain at least one ROS topic")
+        if not isinstance(capabilities, list) or not capabilities:
+            raise ValueError("capabilities must contain at least one capability")
+        normalized_topics = _normalized_unique_strings(
+            required_topics, field="required_topics", require_ros_name=True
+        )
+        normalized_capabilities = _normalized_unique_strings(
+            capabilities, field="capabilities"
+        )
+        return {
+            "version": CONFIG_VERSION,
+            "device_id": device_id.strip(),
+            "name": name,
+            "adapter": "existing_ros2",
+            "mode": "read_only",
+            "host": host.strip(),
+            "rosbridge_port": port,
+            "required_topics": normalized_topics,
+            "capabilities": normalized_capabilities,
+        }
+    if adapter != "serial_joint":
+        raise ValueError("adapter must be serial_joint or existing_ros2")
+
+    port = value.get("port")
+    baudrate = value.get("baudrate")
+    servos = value.get("servos")
     if not isinstance(port, str) or not port.strip():
         raise ValueError("port must be a non-empty string")
     if isinstance(baudrate, bool) or not isinstance(baudrate, int) or baudrate <= 0:
@@ -83,6 +116,21 @@ def validate_device_config(value: dict[str, Any]) -> dict[str, Any]:
         "baudrate": baudrate,
         "servos": normalized_servos,
     }
+
+
+def _normalized_unique_strings(
+    values: list[Any], *, field: str, require_ros_name: bool = False
+) -> list[str]:
+    normalized: list[str] = []
+    for value in values:
+        clean = str(value or "").strip()
+        if not clean:
+            raise ValueError(f"{field} values must be non-empty strings")
+        if require_ros_name and not clean.startswith("/"):
+            raise ValueError(f"{field} values must be absolute ROS topic names")
+        if clean not in normalized:
+            normalized.append(clean)
+    return normalized
 
 
 def load_device_config(path: str | Path = DEFAULT_CONFIG_PATH) -> dict[str, Any]:
@@ -137,3 +185,16 @@ def serial_monitor_from_config(value: dict[str, Any]) -> SerialJointMonitor:
         joints=joints,
     )
     return SerialJointMonitor(serial_config, device_id=config["device_id"])
+
+
+def provider_from_config(value: dict[str, Any]) -> Any:
+    config = validate_device_config(value)
+    if config["adapter"] == "serial_joint":
+        return serial_monitor_from_config(config)
+    ros_config = ExistingRos2Config(
+        host=config["host"],
+        port=config["rosbridge_port"],
+        required_topics=tuple(config["required_topics"]),
+        capabilities=tuple(config["capabilities"]),
+    )
+    return ExistingRos2Monitor(ros_config, device_id=config["device_id"])

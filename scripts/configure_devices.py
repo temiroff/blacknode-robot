@@ -1,4 +1,4 @@
-"""Discover and configure every connected serial robot using read-only probes."""
+"""Discover and configure robots through safe, read-only hardware providers."""
 
 from __future__ import annotations
 
@@ -18,6 +18,10 @@ from blacknode_robot.devices.adapters.serial_joint import (
     SerialJointConfig,
     SerialJointSpec,
     probe_serial,
+)
+from blacknode_robot.devices.adapters.existing_ros2 import (
+    ExistingRos2Config,
+    ExistingRos2Monitor,
 )
 from blacknode_robot.devices.device_config import normalize_device_name, save_device_config
 
@@ -84,6 +88,12 @@ def device_key(port: str) -> str:
     label = re.sub(r"[^a-z0-9]+", "-", label).strip("-") or "serial"
     digest = hashlib.sha256(port.encode("utf-8")).hexdigest()[:8]
     return f"{label[:40].rstrip('-')}-{digest}"
+
+
+def existing_ros2_key(host: str, port: int) -> str:
+    identity = f"{host}:{port}"
+    digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:8]
+    return f"existing-ros2-{digest}"
 
 
 def load_manifest(path: Path) -> dict[str, Any]:
@@ -231,12 +241,19 @@ def print_manifest(manifest: dict[str, Any], path: Path) -> None:
     print(f"Manifest: {path}")
     print(f"Robots: {len(devices)}")
     for index, device in enumerate(devices, start=1):
-        servo_ids = ", ".join(str(value) for value in device["servo_ids"])
         print()
         print(f"{index}. {device.get('name') or device['device_id']}")
         print(f"   Device ID: {device['device_id']}")
-        print(f"   Serial: {device['serial_port']}")
-        print(f"   Servos: {servo_ids}")
+        if device.get("adapter") == "existing_ros2":
+            print(
+                "   ROSBridge: "
+                f"{device.get('rosbridge_host')}:{device.get('rosbridge_port')}"
+            )
+            print(f"   Topics: {', '.join(device.get('required_topics') or [])}")
+        else:
+            servo_ids = ", ".join(str(value) for value in device["servo_ids"])
+            print(f"   Serial: {device['serial_port']}")
+            print(f"   Servos: {servo_ids}")
         print(f"   Service: http://DEVICE_IP:{device['service_port']}")
 
 
@@ -271,6 +288,25 @@ def main() -> int:
         type=int,
         default=20,
         help="scan servo IDs 1 through COUNT on every serial bus (default: 20)",
+    )
+    parser.add_argument(
+        "--existing-ros2",
+        action="store_true",
+        help="configure the robot already exposed through ROSBridge instead of scanning serial servos",
+    )
+    parser.add_argument("--rosbridge-host", default="127.0.0.1")
+    parser.add_argument("--rosbridge-port", type=int, default=9090)
+    parser.add_argument(
+        "--required-topic",
+        action="append",
+        default=[],
+        help="observed ROS topic required for a healthy robot; repeat as needed",
+    )
+    parser.add_argument(
+        "--capability",
+        action="append",
+        default=[],
+        help="capability confirmed from the live ROS graph; repeat as needed",
     )
     parser.add_argument("--baudrate", type=int, default=1_000_000)
     parser.add_argument("--base-port", type=int, default=8765)
@@ -334,6 +370,93 @@ def main() -> int:
         parser.error(str(exc))
     if any(not 1 <= value <= 65535 for value in args.reserved_port):
         parser.error("--reserved-port must be from 1 to 65535")
+
+    if args.existing_ros2:
+        if not 1 <= args.rosbridge_port <= 65535:
+            parser.error("--rosbridge-port must be from 1 to 65535")
+        if not args.required_topic:
+            parser.error("--required-topic is required with --existing-ros2")
+        if not args.capability:
+            parser.error("--capability is required with --existing-ros2")
+        previous = load_manifest(manifest_path)
+        key = existing_ros2_key(args.rosbridge_host, args.rosbridge_port)
+        old = next(
+            (
+                item for item in previous["devices"]
+                if isinstance(item, dict) and item.get("key") == key
+            ),
+            {},
+        )
+        occupied_ports = discover_occupied_service_ports()
+        service_port = old.get("service_port")
+        if (
+            isinstance(service_port, bool)
+            or not isinstance(service_port, int)
+            or not 1 <= service_port <= 65535
+        ):
+            service_port = args.base_port
+            while service_port in {args.runtime_port, *args.reserved_port, *occupied_ports}:
+                service_port += 1
+        if service_port > 65535:
+            raise ValueError("no HTTP port remains for the ROS robot service")
+        device_id = str(old.get("device_id") or f"{socket.gethostname()}-{key}")
+        name = normalize_device_name(
+            args.name[0] if args.name else old.get("name"),
+            fallback="ROS 2 Robot",
+        )
+        device_dir = args.root / "devices" / key
+        config_value = {
+            "version": 1,
+            "device_id": device_id,
+            "name": name,
+            "adapter": "existing_ros2",
+            "mode": "read_only",
+            "host": args.rosbridge_host,
+            "rosbridge_port": args.rosbridge_port,
+            "required_topics": args.required_topic,
+            "capabilities": args.capability,
+        }
+        provider = ExistingRos2Monitor(
+            ExistingRos2Config(
+                host=args.rosbridge_host,
+                port=args.rosbridge_port,
+                required_topics=tuple(args.required_topic),
+                capabilities=tuple(args.capability),
+            ),
+            device_id=device_id,
+        )
+        state = provider.connect()
+        connected = state.connected
+        connection_error = state.error
+        provider.close()
+        if not connected:
+            raise ValueError(
+                "the existing ROS 2 robot was not healthy through ROSBridge: "
+                + (connection_error or "required topics were unavailable")
+            )
+        config_path = device_dir / "device.json"
+        save_device_config(config_value, config_path)
+        entry = {
+            "key": key,
+            "name": name,
+            "device_id": device_id,
+            "adapter": "existing_ros2",
+            "rosbridge_host": args.rosbridge_host,
+            "rosbridge_port": args.rosbridge_port,
+            "required_topics": list(args.required_topic),
+            "service_port": service_port,
+            "config": str(config_path),
+            "token_file": str(device_dir / "auth.token"),
+            "unit": hardware_unit_name(key, stack_instance),
+        }
+        manifest = {"version": FLEET_VERSION, "devices": [entry]}
+        save_manifest(manifest_path, manifest)
+        print()
+        print_manifest(manifest, manifest_path)
+        print()
+        print("The existing ROS 2 robot was configured read-only. No ROS messages were published.")
+        print("Next: ./pair.sh --all")
+        return 0
 
     candidates = (
         deduplicate_serial_ports(args.serial_port)

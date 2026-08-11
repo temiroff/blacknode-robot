@@ -9,6 +9,8 @@ from .contracts import (
 )
 from .safety import SafetyGate, SafetyLimits
 from .adapters import (
+    ExistingRos2Config,
+    ExistingRos2Monitor,
     I2CMecanumBase,
     I2CMecanumConfig,
     SerialJointConfig,
@@ -30,6 +32,8 @@ __all__ = [
     "MobileBaseProvider",
     "SafetyGate",
     "SafetyLimits",
+    "ExistingRos2Config",
+    "ExistingRos2Monitor",
     "I2CMecanumBase",
     "I2CMecanumConfig",
     "SerialJointConfig",

@@ -49,7 +49,7 @@ if [[ "${1:-}" == "--all" ]]; then
     && -f "$repo_dir/.blacknode-hardware/devices.json" \
     && "$(uname -s)" == "Linux" \
     && -x "$repo_dir/service.sh" ]]; then
-    echo "Stopping configured hardware services briefly so every serial bus can be rescanned..."
+    echo "Stopping configured Blacknode Hardware services briefly for provider discovery..."
     "$repo_dir/service.sh" --all stop || true
     restore_previous_fleet=true
     trap restore_fleet_on_failure EXIT

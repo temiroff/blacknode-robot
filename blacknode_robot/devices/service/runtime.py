@@ -173,6 +173,8 @@ class HardwareRuntime:
     def release(self) -> dict[str, Any]:
         if self.provider is None:
             return {"ok": False, "error": "no hardware adapter configured"}
+        if getattr(self.provider, "exclusive_connection", True) is False:
+            return {"ok": True, "status": self.status()}
         if hasattr(self.provider, "stop"):
             self.provider.stop()
         if hasattr(self.provider, "disarm"):
