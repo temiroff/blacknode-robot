@@ -26,7 +26,7 @@ Use the Blacknode editor as the primary surface:
 4. Use Robot Monitor for read-only state and `RobotServo` for preview; arm only after identity, calibration, limits, and fresh feedback are correct.
 5. Use the guided calibration and editable-profile templates when defining a new physical assembly.
 
-Core nodes include `Robot`, `ComputeDevice`, `DeviceInspect`, profile load/save/duplicate nodes, calibration control/recording, capability and attachment nodes, `RobotMonitor`, and `RobotServo`. Local profiles and calibration data live outside package source under `robots/` and are intentionally ignored by Git.
+Core nodes include `Robot`, `ComputeDevice`, `PhysicalRobot`, `RobotDeployment`, `RobotStream`, `DeviceInspect`, profile load/save/duplicate nodes, calibration control/recording, capability and attachment nodes, `RobotMonitor`, and `RobotServo`. Build device workflows as `ComputeDevice` → `PhysicalRobot` → `RobotDeployment` → `RobotStream`. Each node owns one selection and passes credential-free live inspection state forward. Connect `RobotStream.topic` and `RobotStream.message_type` to generic ROS 2 stream inputs, then route the ROS message into a map, camera, LiDAR, IMU, or other compatible viewer or processing node. Local profiles and calibration data live outside package source under `robots/` and are intentionally ignored by Git.
 
 ## Safety
 
