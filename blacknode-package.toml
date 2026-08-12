@@ -1,6 +1,6 @@
 [package]
 name = "blacknode-robot"
-version = "0.5.3"
+version = "0.5.4"
 description = "Robot contracts, connected-device lifecycle, normalized telemetry, profiles, and driver launch."
 requires-blacknode = ">=0.3.0"
 layer = "robot"
@@ -65,7 +65,8 @@ capabilities = ["robot.capabilities"]
 # Declared for the package roadmap; sources land in components/authorization/nodes.
 node-types = [
   "RobotAttachment", "RobotAttachmentList", "RobotCapabilityBinding",
-  "ComputeDevice", "DeviceInspect", "RobotCapabilityInspect",
+  "ComputeDevice", "PhysicalRobot", "RobotDeployment", "RobotStream",
+  "DeviceInspect", "RobotCapabilityInspect",
   "RobotCapabilityList", "RobotCapabilityProfile",
   "RobotConnectionDashboard", "RobotDiscovery", "RobotMonitor",
   "RobotRawMonitor", "RobotRawMonitorMockProvider",
