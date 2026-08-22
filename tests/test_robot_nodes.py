@@ -1432,6 +1432,53 @@ def test_robot_applies_embedded_calibration_only_to_matching_hardware(monkeypatc
     assert "discovery selected SERIAL-42" in rejected["report"]
 
 
+def test_robot_calibration_selection_is_bound_to_its_discovered_instance(monkeypatch):
+    devices = [
+        {"path": "COM3", "serial": "LEADER", "accessible": True},
+        {"path": "COM7", "serial": "FOLLOWER", "accessible": True},
+    ]
+    monkeypatch.setattr(robot_nodes, "robot_usb_discovery", lambda _ctx: {
+        "found": True,
+        "ready": True,
+        "devices": devices,
+        "recommended": devices[0],
+        "report": "found 2",
+    })
+    monkeypatch.setattr(robot_nodes, "robot_discovery", lambda ctx: {
+        "ready": False,
+        "usb_ready": True,
+        "driver_running": False,
+        "robot": {"ready": False, "driver": ctx["driver"]},
+        "report": "driver checked",
+    })
+
+    leader = _NODE_REGISTRY["Robot"]({
+        "profile_id": "so_arm101",
+        "selection": 0,
+        "calibration_hardware_id": "LEADER",
+    })
+    follower = _NODE_REGISTRY["Robot"]({
+        "profile_id": "so_arm101",
+        "selection": 0,
+        "calibration_hardware_id": "FOLLOWER",
+    })
+    mismatched = _NODE_REGISTRY["Robot"]({
+        "profile_id": "so_arm101",
+        "selection": 1,
+        "calibration_hardware_id": "NOT-CONNECTED",
+    })
+
+    assert leader["found"] is True
+    assert leader["hardware_id"] == "LEADER"
+    assert follower["found"] is True
+    assert follower["hardware_id"] == "FOLLOWER"
+    assert follower["hardware"]["recommended"]["path"] == "COM7"
+    assert "selection_source: calibration hardware ID" in follower["report"]
+    assert mismatched["found"] is False
+    assert "belongs to NOT-CONNECTED" in mismatched["report"]
+    assert "discovery selected no hardware" in mismatched["report"]
+
+
 def test_profile_duplicate_turns_builtin_into_editable_local_robot(monkeypatch, tmp_path):
     monkeypatch.setenv("BLACKNODE_ROBOTS_DIR", str(tmp_path / "robots"))
 

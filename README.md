@@ -22,7 +22,7 @@ Use the Blacknode editor as the primary surface:
 
 1. Open **Devices** to add or inspect a computer.
 2. Open **Packages** and enable the required robot and driver components.
-3. Load `complete-robot-bringup.json` to discover hardware, select a profile, apply its matching calibration, and start the driver disarmed.
+3. Load `complete-robot-bringup.json` to discover hardware, select a profile, apply its matching calibration, and start the driver disarmed. Each Robot node keeps its own calibration hardware selection and uses that stable identity to select the connected device, so leader/follower workflows can bind two arms independently.
 4. Use Robot Monitor for read-only state and `RobotServo` for preview; arm only after identity, calibration, limits, and fresh feedback are correct.
 5. Use the guided calibration and editable-profile templates when defining a new physical assembly.
 

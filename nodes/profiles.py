@@ -297,6 +297,20 @@ def _hardware_id(ctx: dict[str, Any]) -> str:
     ).strip()
 
 
+def _normalized_hardware_id(value: Any) -> str:
+    return str(value or "").strip().replace("\\", "/").casefold()
+
+
+def _hardware_matches_id(hardware: dict[str, Any], hardware_id: str) -> bool:
+    expected = _normalized_hardware_id(hardware_id)
+    if not expected:
+        return False
+    return any(
+        _normalized_hardware_id(hardware.get(key)) == expected
+        for key in ("serial", "serial_number", "path", "hardware_id")
+    )
+
+
 def _hardware_details(ctx: dict[str, Any]) -> dict[str, Any]:
     hardware = ctx.get("hardware") if isinstance(ctx.get("hardware"), dict) else {}
     recommended = hardware.get("recommended") if isinstance(hardware.get("recommended"), dict) else {}
@@ -758,6 +772,7 @@ def robot_profile_save(ctx: dict) -> dict:
         "profile_id": Enum(_available_robot_profile_ids(), default="auto"),
         "profile": Dict,
         "calibration": Dict,
+        "calibration_hardware_id": Text(default=""),
         "selection": Int(default=0),
         "hardware": Dict,
         "usb": Dict,
@@ -801,6 +816,7 @@ def robot_profile_load(ctx: dict) -> dict:
     )
     supplied_hardware = ctx.get("hardware") if isinstance(ctx.get("hardware"), dict) else ctx.get("usb")
     hardware = dict(supplied_hardware or {}) if isinstance(supplied_hardware, dict) else {}
+    calibration_hardware_id = str(ctx.get("calibration_hardware_id") or "").strip()
     discovery_report = ""
     devices: list[dict[str, Any]] = []
     if not hardware and bool(ctx.get("auto_discover", True)):
@@ -815,9 +831,19 @@ def robot_profile_load(ctx: dict) -> dict:
         devices = [dict(item) for item in discovered.get("devices", []) if isinstance(item, dict)]
         legacy_selection = ctx.get("hardware_selection")
         selection = int(legacy_selection if legacy_selection not in (None, "", 0) else ctx.get("selection") or 0)
+        selection_source = "device index"
+        if calibration_hardware_id:
+            matching_indexes = [
+                index
+                for index, device in enumerate(devices)
+                if _hardware_matches_id(device, calibration_hardware_id)
+            ]
+            selection = matching_indexes[0] if len(matching_indexes) == 1 else -1
+            selection_source = "calibration hardware ID"
         recommended = devices[selection] if 0 <= selection < len(devices) else {}
         selected_report = (
             f"selected_index: {selection}\n"
+            f"selection_source: {selection_source}\n"
             f"selected_port: {recommended.get('path') or 'not available'}\n"
             f"selected_serial: {recommended.get('serial') or 'not available'}"
         )
@@ -831,6 +857,23 @@ def robot_profile_load(ctx: dict) -> dict:
         }
     elif hardware:
         devices = [dict(item) for item in hardware.get("devices", []) if isinstance(item, dict)]
+        matching_devices = [
+            device
+            for device in devices
+            if calibration_hardware_id and _hardware_matches_id(device, calibration_hardware_id)
+        ]
+        if len(matching_devices) == 1:
+            recommended = matching_devices[0]
+            hardware = {
+                **hardware,
+                "port": str(recommended.get("path") or ""),
+                "serial": str(
+                    recommended.get("serial")
+                    or recommended.get("serial_number")
+                    or ""
+                ),
+                "recommended": recommended,
+            }
 
     requested_profile = str(
         (supplied_profile or {}).get("id")
@@ -867,6 +910,25 @@ def robot_profile_load(ctx: dict) -> dict:
 
     effective_ctx = {**ctx, "hardware": hardware}
     hardware_id = _hardware_id(effective_ctx)
+    if (
+        calibration_hardware_id
+        and _normalized_hardware_id(calibration_hardware_id)
+        != _normalized_hardware_id(hardware_id)
+    ):
+        return {
+            "found": False, "ready": False, "usb_ready": bool(hardware.get("ready")),
+            "driver_running": False, "profile": {}, "driver": {}, "robot": {},
+            "hardware": hardware, "usb": hardware, "devices": devices,
+            "recommended": dict(hardware.get("recommended") or {}),
+            "permissions": dict(hardware.get("permissions") or {}),
+            "calibration": {}, "path": str(path or "builtin"),
+            "report": (
+                f"selected calibration belongs to {calibration_hardware_id}, "
+                f"but discovery selected {hardware_id or 'no hardware'}\n"
+                "Choose the calibration for this physical Robot instance or "
+                "select the matching connected robot."
+            ),
+        }
     supplied_calibration = (
         copy.deepcopy(ctx.get("calibration"))
         if isinstance(ctx.get("calibration"), dict) and ctx.get("calibration")
