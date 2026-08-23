@@ -63,7 +63,27 @@ def _slug(value: Any, fallback: str = "robot") -> str:
 
 def _profile_root() -> Path:
     configured = str(os.environ.get("BLACKNODE_ROBOTS_DIR") or "").strip()
-    return Path(configured).expanduser().resolve() if configured else (Path.cwd() / "robots").resolve()
+    return (
+        Path(configured).expanduser().resolve()
+        if configured
+        else (Path.home() / ".blacknode" / "robots").resolve()
+    )
+
+
+def _legacy_profile_root() -> Path | None:
+    """Return the pre-0.5.6 working-directory store when it is distinct."""
+    if str(os.environ.get("BLACKNODE_ROBOTS_DIR") or "").strip():
+        return None
+    legacy = (Path.cwd() / "robots").resolve()
+    return legacy if legacy != _profile_root() else None
+
+
+def _profile_roots() -> list[Path]:
+    roots = [_profile_root()]
+    legacy = _legacy_profile_root()
+    if legacy is not None:
+        roots.append(legacy)
+    return roots
 
 
 def _profile_dir(profile_id: str) -> Path:
@@ -76,6 +96,11 @@ def _profile_path(profile_id: str) -> Path:
 
 def _calibration_path(profile_id: str, hardware_id: str) -> Path:
     return _profile_dir(profile_id) / "calibrations" / f"{_slug(hardware_id, 'device')}.json"
+
+
+def _find_calibration_path(profile_id: str, hardware_id: str) -> Path | None:
+    relative = Path(_slug(profile_id)) / "calibrations" / f"{_slug(hardware_id, 'device')}.json"
+    return next((root / relative for root in _profile_roots() if (root / relative).exists()), None)
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
@@ -249,8 +274,9 @@ def list_profiles() -> list[dict[str, Any]]:
         {"id": profile_id, "display_name": factory().get("display_name", profile_id), "builtin": True, "path": ""}
         for profile_id, factory in sorted(_BUILTINS.items())
     ]
-    root = _profile_root()
-    if root.exists():
+    for root in reversed(_profile_roots()):
+        if not root.exists():
+            continue
         for path in sorted(root.glob("*/profile.json")):
             try:
                 profile = _read_json(path)
@@ -267,9 +293,11 @@ def list_profiles() -> list[dict[str, Any]]:
 
 
 def load_profile(profile_id: str) -> tuple[dict[str, Any] | None, Path | None]:
-    path = _profile_path(profile_id)
-    if path.exists():
-        return _read_json(path), path
+    relative = Path(_slug(profile_id)) / "profile.json"
+    for root in _profile_roots():
+        path = root / relative
+        if path.exists():
+            return _read_json(path), path
     return builtin_profile(profile_id), None
 
 
@@ -380,7 +408,7 @@ def _auto_profile_for_hardware(
         expected_product = _usb_id(match.get("product_id"))
         score = 0
         reason = ""
-        if hardware_id and _calibration_path(profile_id, hardware_id).exists():
+        if hardware_id and _find_calibration_path(profile_id, hardware_id) is not None:
             score, reason = 400, "saved calibration for this physical device"
         elif expected_hardware and expected_hardware in {hardware_id, serial, path_value}:
             score, reason = 300, "saved physical hardware identity"
@@ -504,6 +532,172 @@ def _apply_calibration(profile: dict[str, Any], calibration: dict[str, Any] | No
     return result
 
 
+def _external_motor_calibration(
+    profile: dict[str, Any],
+    hardware_id: str,
+    source: dict[str, Any],
+    *,
+    source_name: str = "calibration.json",
+    safety_margin_deg: float = 3.0,
+) -> dict[str, Any]:
+    """Convert a six-motor range file into Blacknode's native calibration.
+
+    Older SO-ARM setup tools store the Feetech homing offset and the observed
+    position range per motor. The offset is already reflected in the motor's
+    Present Position register, where the calibration pose is centred at 2048.
+    Blacknode retains the original register values for audit/recovery and uses
+    native degree limits at runtime; no external package is imported or needed.
+    """
+    profile_id = str(profile.get("id") or "").strip()
+    hardware_id = str(hardware_id or "").strip()
+    if not profile_id:
+        raise ValueError("calibration import needs a Robot profile")
+    if not hardware_id:
+        raise ValueError("calibration import needs a discovered physical hardware ID")
+    if not isinstance(source, dict):
+        raise ValueError("calibration file must contain a JSON object")
+
+    joints = _joint_list(profile)
+    expected = {str(joint.get("id") or ""): joint for joint in joints}
+    if set(source) != set(expected):
+        missing = sorted(set(expected) - set(source))
+        extra = sorted(set(source) - set(expected))
+        details = []
+        if missing:
+            details.append("missing " + ", ".join(missing))
+        if extra:
+            details.append("unexpected " + ", ".join(extra))
+        raise ValueError("calibration joints do not match the Robot profile: " + "; ".join(details))
+
+    margin = max(0.0, float(safety_margin_deg))
+    overrides: dict[str, Any] = {}
+    retained: dict[str, Any] = {}
+    for name, joint in expected.items():
+        raw = source.get(name)
+        if not isinstance(raw, dict):
+            raise ValueError(f"calibration for {name} must be an object")
+        required = ("id", "drive_mode", "homing_offset", "range_min", "range_max")
+        if any(key not in raw for key in required):
+            raise ValueError(f"calibration for {name} is missing motor range fields")
+        try:
+            servo_id = int(raw["id"])
+            drive_mode = int(raw["drive_mode"])
+            homing_offset = int(raw["homing_offset"])
+            range_min = int(raw["range_min"])
+            range_max = int(raw["range_max"])
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"calibration for {name} has non-integer motor values") from exc
+        if servo_id != int(joint.get("servo_id")):
+            raise ValueError(f"calibration servo ID for {name} does not match the Robot profile")
+        if drive_mode not in (0, 1):
+            raise ValueError(f"calibration drive mode for {name} must be 0 or 1")
+        if not -_TICKS_PER_REV <= homing_offset <= _TICKS_PER_REV:
+            raise ValueError(f"calibration homing offset for {name} is outside one revolution")
+        if not 0 <= range_min < range_max <= _TICKS_PER_REV:
+            raise ValueError(f"calibration range for {name} must be within 0..{_TICKS_PER_REV}")
+
+        direction = -1.0 if drive_mode else 1.0
+        endpoint_a = direction * (range_min - _DEFAULT_HOME_TICKS) * 360.0 / _TICKS_PER_REV
+        endpoint_b = direction * (range_max - _DEFAULT_HOME_TICKS) * 360.0 / _TICKS_PER_REV
+        observed_lo, observed_hi = sorted((endpoint_a, endpoint_b))
+        base_lo = float(joint.get("safe_min_deg", joint.get("min_deg", observed_lo)))
+        base_hi = float(joint.get("safe_max_deg", joint.get("max_deg", observed_hi)))
+        safe_lo = max(observed_lo + margin, base_lo)
+        safe_hi = min(observed_hi - margin, base_hi)
+        if safe_lo >= safe_hi:
+            raise ValueError(f"calibration range for {name} is too small after applying safety limits")
+        overrides[name] = {
+            "home_ticks": _DEFAULT_HOME_TICKS,
+            "home_offset_deg": 0.0,
+            "observed_min_deg": round(observed_lo, 6),
+            "observed_max_deg": round(observed_hi, 6),
+            "safe_min_deg": round(safe_lo, 6),
+            "safe_max_deg": round(safe_hi, 6),
+            "invert": bool(drive_mode),
+        }
+        retained[name] = {
+            "servo_id": servo_id,
+            "drive_mode": drive_mode,
+            "homing_offset": homing_offset,
+            "range_min": range_min,
+            "range_max": range_max,
+        }
+
+    return {
+        "schema_version": _PROFILE_SCHEMA,
+        "name": f"Imported {Path(source_name).name}"[:96],
+        "profile_id": profile_id,
+        "hardware_id": hardware_id,
+        "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "units": "degrees",
+        "safety_margin_deg": margin,
+        "samples": 0,
+        "source_format": "feetech_motor_ranges_v2",
+        "source_name": Path(source_name).name,
+        "source_motor_calibration": retained,
+        "joints": overrides,
+    }
+
+
+def import_motor_calibration(
+    profile: dict[str, Any],
+    hardware_id: str,
+    source: dict[str, Any],
+    *,
+    source_name: str = "calibration.json",
+    safety_margin_deg: float = 3.0,
+) -> tuple[dict[str, Any], Path]:
+    """Validate, hardware-bind, and persist an external motor calibration copy."""
+    calibration = _external_motor_calibration(
+        profile,
+        hardware_id,
+        source,
+        source_name=source_name,
+        safety_margin_deg=safety_margin_deg,
+    )
+    profile_id = str(profile["id"])
+    profile_path = _profile_path(profile_id)
+    if not profile_path.exists():
+        _write_json(profile_path, profile)
+    path = _calibration_path(profile_id, hardware_id)
+    if path.exists():
+        try:
+            existing = _read_json(path)
+        except (OSError, ValueError, json.JSONDecodeError):
+            existing = {}
+        if (
+            existing.get("profile_id") == calibration.get("profile_id")
+            and existing.get("hardware_id") == calibration.get("hardware_id")
+            and existing.get("source_motor_calibration")
+            == calibration.get("source_motor_calibration")
+        ):
+            return existing, path
+    _write_json(path, calibration)
+    return calibration, path
+
+
+def _normalize_supplied_calibration(
+    payload: dict[str, Any],
+    profile: dict[str, Any],
+    hardware_id: str,
+) -> tuple[dict[str, Any], Path | None, bool]:
+    """Return native calibration, optional saved path, and whether it was imported."""
+    if payload.get("kind") != "blacknode.calibration-import":
+        return copy.deepcopy(payload), None, False
+    source = payload.get("calibration")
+    if not isinstance(source, dict) or not source:
+        raise ValueError("selected calibration file does not contain a JSON object")
+    if "profile_id" in source or "joints" in source:
+        return copy.deepcopy(source), None, False
+    calibration, path = import_motor_calibration(
+        profile,
+        hardware_id,
+        source,
+        source_name=str(payload.get("source_name") or "calibration.json"),
+    )
+    return calibration, path, True
+
+
 def _driver_from_profile(
     profile: dict[str, Any],
     hardware_id: str = "",
@@ -514,8 +708,8 @@ def _driver_from_profile(
     calibration: dict[str, Any] = {}
     calibration_path: Path | None = None
     if hardware_id:
-        candidate = _calibration_path(profile_id, hardware_id)
-        if candidate.exists():
+        candidate = _find_calibration_path(profile_id, hardware_id)
+        if candidate is not None:
             calibration = _read_json(candidate)
             calibration_path = candidate
     effective = _apply_calibration(profile, calibration)
@@ -934,7 +1128,30 @@ def robot_profile_load(ctx: dict) -> dict:
         if isinstance(ctx.get("calibration"), dict) and ctx.get("calibration")
         else None
     )
+    calibration_import_requested = bool(
+        supplied_calibration
+        and supplied_calibration.get("kind") == "blacknode.calibration-import"
+    )
+    imported_calibration_path: Path | None = None
+    calibration_was_imported = False
     if supplied_calibration is not None:
+        try:
+            (
+                supplied_calibration,
+                imported_calibration_path,
+                calibration_was_imported,
+            ) = _normalize_supplied_calibration(
+                supplied_calibration,
+                profile,
+                hardware_id,
+            )
+        except (TypeError, ValueError) as exc:
+            return {
+                "found": False, "ready": False, "profile": {}, "driver": {},
+                "robot": {}, "hardware": hardware, "devices": devices,
+                "calibration": {}, "path": "",
+                "report": f"calibration import blocked: {exc}",
+            }
         calibration_profile_id = str(
             supplied_calibration.get("profile_id") or ""
         ).strip()
@@ -975,6 +1192,15 @@ def robot_profile_load(ctx: dict) -> dict:
                 "calibration": {}, "path": "",
                 "report": "embedded calibration joints do not match the Robot profile",
             }
+        if calibration_import_requested and imported_calibration_path is None:
+            profile_path = _profile_path(str(profile["id"]))
+            if not profile_path.exists():
+                _write_json(profile_path, profile)
+            imported_calibration_path = _calibration_path(
+                str(profile["id"]), hardware_id
+            )
+            _write_json(imported_calibration_path, supplied_calibration)
+            calibration_was_imported = True
         effective_profile = _apply_calibration(profile, supplied_calibration)
     else:
         effective_profile = copy.deepcopy(profile)
@@ -988,7 +1214,7 @@ def robot_profile_load(ctx: dict) -> dict:
             driver["profile"] = copy.deepcopy(effective_profile)
             driver["joints"] = _joint_list(effective_profile)
             driver["hardware_id"] = hardware_id
-            driver["calibration_path"] = ""
+            driver["calibration_path"] = str(imported_calibration_path or "")
     else:
         driver = _driver_from_profile(
             effective_profile,
@@ -1003,7 +1229,7 @@ def robot_profile_load(ctx: dict) -> dict:
             # contract so downstream safety gates can bind commands to this
             # exact robot.
             driver["hardware_id"] = hardware_id
-            driver["calibration_path"] = ""
+            driver["calibration_path"] = str(imported_calibration_path or "")
     effective_profile = copy.deepcopy(driver.get("profile") or effective_profile)
     effective_profile = _profile_with_default_capabilities(effective_profile, driver)
     driver["profile"] = copy.deepcopy(effective_profile)
@@ -1048,7 +1274,9 @@ def robot_profile_load(ctx: dict) -> dict:
             f"loaded robot profile '{profile_id}' ({len(_joint_list(effective))} joint(s))"
             + (f"\nautomatic profile match: {auto_reason}" if auto_reason else "")
             + (
-                "\ncalibration: embedded deployment calibration"
+                f"\ncalibration: imported and saved to {imported_calibration_path}"
+                if calibration_was_imported and imported_calibration_path is not None
+                else "\ncalibration: embedded deployment calibration"
                 if supplied_calibration is not None
                 else f"\ncalibration: {driver['calibration_path']}"
                 if driver.get("calibration_path")

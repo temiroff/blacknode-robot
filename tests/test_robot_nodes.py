@@ -1432,6 +1432,115 @@ def test_robot_applies_embedded_calibration_only_to_matching_hardware(monkeypatc
     assert "discovery selected SERIAL-42" in rejected["report"]
 
 
+def _external_so_arm_calibration(profile: dict) -> dict:
+    return {
+        joint["id"]: {
+            "id": joint["servo_id"],
+            "drive_mode": 0,
+            "homing_offset": -1500 + joint["servo_id"],
+            "range_min": 800,
+            "range_max": 3300,
+        }
+        for joint in profile["joints"]
+    }
+
+
+def test_default_robot_storage_is_user_persistent_and_legacy_store_remains_readable(monkeypatch, tmp_path):
+    user_home = tmp_path / "user"
+    worktree = tmp_path / "old-app"
+    worktree.mkdir()
+    monkeypatch.delenv("BLACKNODE_ROBOTS_DIR", raising=False)
+    monkeypatch.setenv("HOME", str(user_home))
+    monkeypatch.setenv("USERPROFILE", str(user_home))
+    monkeypatch.chdir(worktree)
+
+    assert profile_nodes._profile_root() == (user_home / ".blacknode" / "robots").resolve()
+    legacy = worktree / "robots" / "so_arm101" / "calibrations" / "serial_42.json"
+    legacy.parent.mkdir(parents=True)
+    legacy.write_text("{}", encoding="utf-8")
+    assert profile_nodes._find_calibration_path("so_arm101", "SERIAL-42") == legacy.resolve()
+
+
+def test_external_motor_calibration_import_is_native_hardware_bound_and_persistent(monkeypatch, tmp_path):
+    root = tmp_path / "blacknode" / "robots"
+    monkeypatch.setenv("BLACKNODE_ROBOTS_DIR", str(root))
+    profile = profile_nodes.builtin_profile("so_arm101")
+    source = _external_so_arm_calibration(profile)
+
+    calibration, path = profile_nodes.import_motor_calibration(
+        profile,
+        "SERIAL-42",
+        source,
+        source_name="existing-leader.json",
+    )
+
+    assert path == root / "so_arm101" / "calibrations" / "serial_42.json"
+    assert path.exists()
+    assert calibration["profile_id"] == "so_arm101"
+    assert calibration["hardware_id"] == "SERIAL-42"
+    assert calibration["source_format"] == "feetech_motor_ranges_v2"
+    assert calibration["source_name"] == "existing-leader.json"
+    assert calibration["joints"]["shoulder_pan"]["home_ticks"] == 2048
+    assert calibration["joints"]["shoulder_pan"]["safe_min_deg"] >= -100.0
+    assert calibration["joints"]["shoulder_pan"]["safe_max_deg"] <= 100.0
+    assert calibration["source_motor_calibration"]["shoulder_pan"]["homing_offset"] == -1499
+    assert (root / "so_arm101" / "profile.json").exists()
+
+
+def test_robot_file_import_binds_to_discovered_arm_and_rejects_wrong_topology(monkeypatch, tmp_path):
+    monkeypatch.setenv("BLACKNODE_ROBOTS_DIR", str(tmp_path / "robots"))
+    profile = profile_nodes.builtin_profile("so_arm101")
+    source = _external_so_arm_calibration(profile)
+    hardware = {
+        "found": True,
+        "ready": True,
+        "port": "COM7",
+        "serial": "SERIAL-42",
+        "devices": [{"path": "COM7", "serial": "SERIAL-42", "accessible": True}],
+        "recommended": {"path": "COM7", "serial": "SERIAL-42", "accessible": True},
+        "report": "found",
+    }
+    monkeypatch.setattr(robot_nodes, "robot_discovery", lambda ctx: {
+        "ready": False,
+        "usb_ready": True,
+        "driver_running": False,
+        "robot": {"ready": False, "driver": ctx["driver"]},
+        "report": "driver checked",
+    })
+
+    imported = _NODE_REGISTRY["Robot"]({
+        "profile": profile,
+        "hardware": hardware,
+        "auto_discover": False,
+        "calibration": {
+            "kind": "blacknode.calibration-import",
+            "schema_version": 1,
+            "source_name": "leader.json",
+            "calibration": source,
+        },
+    })
+
+    assert imported["found"] is True
+    assert imported["calibration"]["hardware_id"] == "SERIAL-42"
+    assert imported["driver"]["calibration_path"].endswith("serial_42.json")
+    assert "imported and saved" in imported["report"]
+
+    invalid_source = dict(source)
+    invalid_source.pop("gripper")
+    rejected = _NODE_REGISTRY["Robot"]({
+        "profile": profile,
+        "hardware": hardware,
+        "auto_discover": False,
+        "calibration": {
+            "kind": "blacknode.calibration-import",
+            "calibration": invalid_source,
+        },
+    })
+    assert rejected["found"] is False
+    assert "calibration import blocked" in rejected["report"]
+    assert "missing gripper" in rejected["report"]
+
+
 def test_robot_calibration_selection_is_bound_to_its_discovered_instance(monkeypatch):
     devices = [
         {"path": "COM3", "serial": "LEADER", "accessible": True},
