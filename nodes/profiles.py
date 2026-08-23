@@ -775,6 +775,7 @@ def _driver_from_profile(
         "hardware_id": hardware_id,
         "topic_prefix": prefix,
         "read_only": bool(read_only),
+        "safe_shutdown_watchdog": protocol == "feetech",
         "calibration_path": str(calibration_path or ""),
     }
 

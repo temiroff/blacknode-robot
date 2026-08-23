@@ -950,11 +950,14 @@ def test_driver_stop_releases_torque_over_rosbridge(monkeypatch):
     from blacknode.pkg.blacknode_ros2 import rosbridge_runtime as rb
     monkeypatch.setattr(rb, "publish_string", lambda host, port, topic, value, timeout=2.0:
                         published.append((host, port, topic, json.loads(value))) or {"ok": True})
+    monkeypatch.setattr(rb, "read_config", lambda host, port, topic, timeout=2.0: {
+        "torque_enabled": False,
+    })
 
     robot_nodes._managed_drivers[run_id] = SimpleNamespace(poll=lambda: None, pid=4321)
     robot_nodes._managed_driver_meta[run_id] = {
         "transport": "rosbridge", "host": "192.168.1.7", "port": 9090,
-        "control_topic": "/robot_control",
+        "control_topic": "/robot_control", "config_topic": "/joint_config",
     }
     try:
         # Explicit stop → releases torque; internal restart (default) would not.
@@ -964,6 +967,35 @@ def test_driver_stop_releases_torque_over_rosbridge(monkeypatch):
     finally:
         robot_nodes._managed_drivers.pop(run_id, None)
         robot_nodes._managed_driver_meta.pop(run_id, None)
+
+
+def test_windows_stop_retains_driver_when_torque_release_is_unverified(monkeypatch):
+    run_id = "test_unverified_release"
+    proc = SimpleNamespace(poll=lambda: None, pid=4321)
+    monkeypatch.setattr(robot_nodes, "_IS_WINDOWS", True)
+    monkeypatch.setattr(robot_nodes, "_release_torque_best_effort", lambda _run_id: False)
+    monkeypatch.setattr(robot_nodes, "_request_graceful_driver_stop", lambda _run_id, _proc: False)
+    monkeypatch.setattr(
+        robot_nodes,
+        "_terminate_process",
+        lambda _proc: (_ for _ in ()).throw(AssertionError("unsafe hard kill")),
+    )
+    robot_nodes._managed_drivers[run_id] = proc
+    robot_nodes._managed_driver_meta[run_id] = {}
+    robot_nodes._managed_driver_meta[run_id]["safe_shutdown_watchdog"] = True
+    try:
+        assert robot_nodes._stop_driver(run_id, release_torque=True) == 0
+        assert robot_nodes._managed_drivers[run_id] is proc
+    finally:
+        robot_nodes._managed_drivers.pop(run_id, None)
+        robot_nodes._managed_driver_meta.pop(run_id, None)
+
+
+def test_driver_environment_binds_child_lifecycle_to_parent():
+    env = robot_nodes._driver_environment(stop_file="driver.stop")
+
+    assert env["BLACKNODE_PARENT_PID"] == str(robot_nodes.os.getpid())
+    assert env["BLACKNODE_DRIVER_STOP_FILE"] == "driver.stop"
 
 
 def test_driver_launcher_preserves_late_exit_error():
@@ -1196,6 +1228,7 @@ def test_visual_robot_definition_saves_and_loads_named_profile(monkeypatch, tmp_
     assert definition["profile"]["id"] == "my_custom_arm"
     assert [joint["id"] for joint in definition["profile"]["joints"]] == ["shoulder_pan", "gripper"]
     assert "--invert \"gripper\"" in definition["driver"]["command_template"]
+    assert definition["driver"]["safe_shutdown_watchdog"] is True
 
     saved = _NODE_REGISTRY["RobotProfileSave"]({"profile": definition["profile"]})
     assert saved["saved"] is True

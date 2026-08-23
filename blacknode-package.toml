@@ -1,6 +1,6 @@
 [package]
 name = "blacknode-robot"
-version = "0.5.6"
+version = "0.5.7"
 description = "Robot contracts, connected-device lifecycle, normalized telemetry, profiles, and driver launch."
 requires-blacknode = ">=0.3.0"
 layer = "robot"

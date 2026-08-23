@@ -36,6 +36,7 @@ The `Robot` calibration input also accepts Blacknode's explicit calibration-impo
 - Calibration is recorded only while torque is released and the robot is physically supported.
 - Calibrations bind to stable hardware identity and are never substituted silently.
 - Freshness, calibrated limits, hardware warnings, and shutdown behavior remain enforced at provider and driver boundaries.
+- Managed hardware drivers receive an owner watchdog and a graceful-stop signal. On Windows they remain isolated from console-close termination long enough to release torque, and Stop All keeps their transport available until torque-off is confirmed.
 - Device pairing tokens never belong in workflows, logs, process arguments, or tracked files.
 
 ## Verification

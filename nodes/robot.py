@@ -19,7 +19,9 @@ import signal
 import stat
 import subprocess
 import sys
+import tempfile
 import time
+import uuid
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
@@ -45,6 +47,7 @@ except ImportError:  # pyserial is optional until robot setup is installed.
     serial_list_ports = None
 
 _CATEGORY = "Robot"
+_IS_WINDOWS = os.name == "nt"
 _SERIAL_GLOBS = ("/dev/serial/by-id/*", "/dev/ttyACM*", "/dev/ttyUSB*")
 _COMMON_SERIAL_GROUPS = {"dialout", "uucp", "plugdev", "tty"}
 _managed_drivers: dict[str, subprocess.Popen] = {}
@@ -430,7 +433,7 @@ def _split_command(command: str) -> list[str]:
         kernel32.LocalFree(ctypes.cast(argv, ctypes.c_void_p))
 
 
-def _driver_environment() -> dict[str, str]:
+def _driver_environment(*, stop_file: str = "") -> dict[str, str]:
     """Expose loaded extension modules to managed driver child processes."""
     env = os.environ.copy()
     python_paths: list[str] = []
@@ -462,6 +465,12 @@ def _driver_environment() -> dict[str, str]:
             add_path(manifest.parent)
 
     env["PYTHONPATH"] = os.pathsep.join(python_paths)
+    # Hardware drivers use these generic lifecycle hints to outlive an abrupt
+    # Windows console close just long enough to release hardware safely. Older
+    # and non-hardware drivers may ignore them.
+    env["BLACKNODE_PARENT_PID"] = str(os.getpid())
+    if stop_file:
+        env["BLACKNODE_DRIVER_STOP_FILE"] = stop_file
     return env
 
 
@@ -473,6 +482,8 @@ def _driver_running(run_id: str) -> bool:
         return True
     _managed_drivers.pop(run_id, None)
     _managed_driver_commands.pop(run_id, None)
+    _cleanup_driver_stop_file(run_id)
+    _managed_driver_meta.pop(run_id, None)
     stderr = (proc.stderr.read() if proc.stderr else "").strip()
     _last_driver_exits[run_id] = {
         "run_id": run_id,
@@ -511,34 +522,77 @@ def _terminate_process(proc: subprocess.Popen) -> bool:
     return True
 
 
-def _release_torque_best_effort(run_id: str) -> None:
+def _release_torque_best_effort(run_id: str) -> bool:
     """Tell the driver to drop torque before we kill its process.
 
     On Linux the driver's SIGTERM handler already disables torque on exit, but
-    on Windows subprocess termination is a hard kill that never runs the handler,
-    so the arm would stay stiff. Publishing the driver's own 'enter_teach'
-    control message over rosbridge releases torque regardless of platform. Purely
-    best-effort: if rosbridge isn't reachable or the transport is native, skip.
+    on Windows subprocess termination is a hard kill that never runs the handler.
+    Publish the driver's own ``enter_teach`` control message and independently
+    read its latched config back before accepting the arm as released.
     """
     meta = _managed_driver_meta.get(run_id) or {}
     if str(meta.get("transport") or "").lower() != "rosbridge":
-        return
+        return False
     control_topic = str(meta.get("control_topic") or "").strip()
-    if not control_topic:
-        return
+    config_topic = str(meta.get("config_topic") or "").strip()
+    if not control_topic or not config_topic:
+        return False
     try:
         from blacknode.pkg.blacknode_ros2 import rosbridge_runtime as rb
 
-        rb.publish_string(
+        result = rb.publish_string(
             str(meta.get("host") or "127.0.0.1"),
             int(meta.get("port") or 9090),
             control_topic,
             json.dumps({"action": "enter_teach"}),
             timeout=2.0,
         )
+        if not bool(result.get("ok")):
+            return False
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline:
+            config = rb.read_config(
+                str(meta.get("host") or "127.0.0.1"),
+                int(meta.get("port") or 9090),
+                config_topic,
+                timeout=min(0.5, max(0.05, deadline - time.monotonic())),
+            )
+            if isinstance(config, dict) and config.get("torque_enabled") is False:
+                return True
+            time.sleep(0.05)
     except Exception:
         # A stop must never fail because the arm couldn't be reached to disarm.
         pass
+    return False
+
+
+def _request_graceful_driver_stop(run_id: str, proc: subprocess.Popen) -> bool:
+    """Ask a lifecycle-aware driver to exit, then wait for its safe finalizer."""
+    meta = _managed_driver_meta.get(run_id) or {}
+    if not bool(meta.get("safe_shutdown_watchdog")):
+        return False
+    stop_file = str(meta.get("stop_file") or "").strip()
+    if not stop_file:
+        return False
+    try:
+        Path(stop_file).touch(exist_ok=True)
+    except OSError:
+        return False
+    try:
+        proc.wait(timeout=3.0)
+        return True
+    except subprocess.TimeoutExpired:
+        return False
+
+
+def _cleanup_driver_stop_file(run_id: str) -> None:
+    meta = _managed_driver_meta.get(run_id) or {}
+    stop_file = str(meta.get("stop_file") or "").strip()
+    if stop_file:
+        try:
+            Path(stop_file).unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def identify_robot(params: dict[str, Any]) -> dict[str, Any]:
@@ -604,14 +658,35 @@ def identify_robot(params: dict[str, Any]) -> dict[str, Any]:
 
 
 def _stop_driver(run_id: str, release_torque: bool = False) -> int:
+    release_verified = False
     if release_torque:
-        _release_torque_best_effort(run_id)
-    proc = _managed_drivers.pop(run_id, None)
-    _managed_driver_commands.pop(run_id, None)
-    _managed_driver_meta.pop(run_id, None)
-    if proc is None:
+        release_verified = _release_torque_best_effort(run_id)
+    proc = _managed_drivers.get(run_id)
+    if proc is not None and _request_graceful_driver_stop(run_id, proc):
+        release_verified = True
+    # A Windows hard kill skips Python finally blocks. If neither the live
+    # torque readback nor the driver's graceful stop succeeded, retain the
+    # process for another safe stop attempt instead of reporting a false stop
+    # while the servos remain latched on.
+    if (
+        proc is not None
+        and proc.poll() is None
+        and release_torque
+        and _IS_WINDOWS
+        and bool((_managed_driver_meta.get(run_id) or {}).get("safe_shutdown_watchdog"))
+        and not release_verified
+    ):
         return 0
-    return 1 if _terminate_process(proc) else 0
+    _managed_drivers.pop(run_id, None)
+    _managed_driver_commands.pop(run_id, None)
+    if proc is None:
+        _cleanup_driver_stop_file(run_id)
+        _managed_driver_meta.pop(run_id, None)
+        return 0
+    stopped = proc.poll() is not None or _terminate_process(proc)
+    _cleanup_driver_stop_file(run_id)
+    _managed_driver_meta.pop(run_id, None)
+    return 1 if stopped else 0
 
 
 def runtime_status() -> dict[str, Any]:
@@ -657,6 +732,11 @@ def stop_runtime_services() -> dict[str, Any]:
     stopped = 0
     for run_id in list(_managed_drivers):
         stopped += _stop_driver(run_id, release_torque=True)
+    failed_runs = [
+        run_id
+        for run_id, proc in _managed_drivers.items()
+        if proc.poll() is None
+    ]
     try:
         from .profiles import stop_calibration_services
 
@@ -664,10 +744,19 @@ def stop_runtime_services() -> dict[str, Any]:
     except Exception:
         stopped_calibrations = 0
     return {
-        "ok": True,
+        "ok": not failed_runs,
         "active_before": status_before,
         "stopped": {"managed_runs": stopped, "calibrations": stopped_calibrations},
-        "report": f"stopped {stopped} robot driver process(es) and {stopped_calibrations} calibration session(s)",
+        "report": (
+            f"stopped {stopped} robot driver process(es) and "
+            f"{stopped_calibrations} calibration session(s)"
+            + (
+                "; torque release could not be verified for: "
+                + ", ".join(failed_runs)
+                if failed_runs
+                else ""
+            )
+        ),
     }
 
 
@@ -792,6 +881,7 @@ def robot_usb_discovery(ctx: dict) -> dict:
         "control_topic": Text(default="/robot_control"),
         "units": Enum(["radians", "degrees"], default="degrees"),
         "read_only": Bool(default=False),
+        "safe_shutdown_watchdog": Bool(default=False),
         "match_vendor_id": Text(default=""),
         "match_product_id": Text(default=""),
     },
@@ -811,6 +901,7 @@ def robot_driver_descriptor(ctx: dict) -> dict:
         "control_topic": str(ctx.get("control_topic") or "/robot_control"),
         "units": str(ctx.get("units") or "degrees"),
         "read_only": bool(ctx.get("read_only", False)),
+        "safe_shutdown_watchdog": bool(ctx.get("safe_shutdown_watchdog", False)),
         "match": {
             "vendor_id": str(ctx.get("match_vendor_id") or "").strip().lower(),
             "product_id": str(ctx.get("match_product_id") or "").strip().lower(),
@@ -906,15 +997,29 @@ def robot_driver_launcher(ctx: dict) -> dict:
 
     _stop_driver(run_id)
     _last_driver_exits.pop(run_id, None)
+    stop_file = str(
+        Path(tempfile.gettempdir())
+        / f"blacknode-driver-{os.getpid()}-{uuid.uuid4().hex}.stop"
+    )
     try:
         args = _split_command(command)
+        process_options: dict[str, Any]
+        if _IS_WINDOWS:
+            process_options = {
+                "creationflags": (
+                    getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+                    | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                )
+            }
+        else:
+            process_options = {"start_new_session": True}
         proc = subprocess.Popen(
             args,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
             text=True,
-            env=_driver_environment(),
-            start_new_session=True,
+            env=_driver_environment(stop_file=stop_file),
+            **process_options,
         )
     except Exception as exc:  # noqa: BLE001
         return {
@@ -930,7 +1035,10 @@ def robot_driver_launcher(ctx: dict) -> dict:
         "transport": str(driver.get("transport") or "rosbridge"),
         "host": str(driver.get("host") or "127.0.0.1"),
         "port": int(driver.get("port") or 9090),
+        "config_topic": str(driver.get("config_topic") or "/joint_config"),
         "control_topic": str(driver.get("control_topic") or "/robot_control"),
+        "stop_file": stop_file,
+        "safe_shutdown_watchdog": bool(driver.get("safe_shutdown_watchdog", False)),
     }
 
     wait_seconds = max(0.0, float(ctx.get("wait_seconds") or 0.0))
