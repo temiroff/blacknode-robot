@@ -374,6 +374,12 @@ class _MockCalibrationSession:
             self.pose[name] = float(value)
         return self.sample()
 
+    def command_position_target(self, positions_deg: Mapping[str, float], *,
+                                max_velocity_deg_s: float, deadline: float) -> dict[str, Any]:
+        if not 0 < max_velocity_deg_s <= 180:
+            raise ValueError("Mock position tracking speed is invalid")
+        return self.command(positions_deg, deadline=deadline)
+
     def close(self) -> None:
         self.torque_enabled = False
 
@@ -411,6 +417,7 @@ robot_calibration_mock_provider._bn_robot_calibration_provider = {
 }
 
 robot_calibration_mock_provider._bn_robot_joint_motion_provider = {
+    "supports_position_targets": True,
     "package": "blacknode-robot",
     "component": "calibration",
     "capability": "joint_group",

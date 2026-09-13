@@ -1,6 +1,6 @@
 [package]
 name = "blacknode-robot"
-version = "0.5.7"
+version = "0.5.8"
 description = "Robot contracts, connected-device lifecycle, normalized telemetry, profiles, and driver launch."
 requires-blacknode = ">=0.3.0"
 layer = "robot"
@@ -69,7 +69,7 @@ node-types = [
   "DeviceInspect", "RobotCapabilityInspect",
   "RobotCapabilityList", "RobotCapabilityProfile",
   "RobotConnectionDashboard", "RobotDiscovery", "RobotMonitor",
-  "RobotRawMonitor", "RobotRawMonitorMockProvider",
+  "RobotRawMonitor", "RobotRawMonitorMockProvider", "ActuatorSetup", "ActuatorServoSetup", "RobotActuatorSetupMockProvider",
   "RobotROSCapabilityDiscover", "RobotROSInterfaceCheck", "RobotUSBDiscovery"
 ]
 

@@ -1,0 +1,26 @@
+{
+  "kind": "blacknode.workflow",
+  "schema_version": 1,
+  "name": "Actuator Setup",
+  "entrypoint": {"node_id": "setup", "port": "report"},
+  "metadata": {
+    "template": true,
+    "description": "Pick a USB port and press Scan. Each servo gets its own ID controls, Min/Home/Max calibration capture, named poses, Save states and an explicitly armed test slider within saved limits. Running the workflow is inert.",
+    "color": "#14b8a6",
+    "required_packages": ["blacknode-robot", "blacknode-drivers", "blacknode-motion"],
+    "required_components": ["blacknode-robot/core", "blacknode-robot/capabilities", "blacknode-robot/calibration", "blacknode-robot/devices", "blacknode-drivers/feetech", "blacknode-motion/arm"]
+  },
+  "node_meta": {
+    "setup": {
+      "id": "setup", "type": "ActuatorSetup", "pos": [80, 80],
+      "params": {"profile_id": "", "serial_port": "", "baudrate": 1000000},
+      "inputs": ["profile_id", "serial_port", "baudrate"],
+      "outputs": ["ok", "assigned", "actuators", "profile", "bus", "report"],
+      "input_types": {"profile_id": "Text", "serial_port": "Text", "baudrate": "Int"},
+      "output_types": {"ok": "Bool", "assigned": "Bool", "actuators": "List", "profile": "Dict", "bus": "Dict", "report": "Text"},
+      "input_defaults": {"profile_id": "", "serial_port": "", "baudrate": 1000000},
+      "primary_inputs": [], "primary_outputs": ["bus", "report"]
+    }
+  },
+  "edges": []
+}

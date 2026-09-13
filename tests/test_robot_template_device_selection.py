@@ -7,6 +7,7 @@ from pathlib import Path
 
 _TEMPLATE_DIR = Path(__file__).resolve().parents[1] / "templates"
 _EXPECTED_ROBOTS = {
+    "actuator-setup.json": {},
     "complete-robot-bringup.json": {"robot": 0},
     "compute-device-inspection.json": {},
     "editable-so-arm101-profile.json": {},
