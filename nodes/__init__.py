@@ -5,3 +5,4 @@ from . import interfaces  # noqa: F401
 from . import monitoring  # noqa: F401
 from . import presets  # noqa: F401
 from . import robot  # noqa: F401
+from . import actuator_setup  # noqa: F401
